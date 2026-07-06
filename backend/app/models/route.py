@@ -20,7 +20,10 @@ class Route(Base):
     )
 
     checkpoints: Mapped[list["RouteCheckpoint"]] = relationship(
-        back_populates="route", order_by="RouteCheckpoint.sequence_order"
+        back_populates="route",
+        order_by="RouteCheckpoint.sequence_order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 

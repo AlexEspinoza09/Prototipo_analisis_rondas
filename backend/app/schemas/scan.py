@@ -23,3 +23,13 @@ class ScanOut(BaseModel):
     invalid_reason: ScanInvalidReason | None
     distance_to_checkpoint_m: float
     radius_m: int
+
+
+class SessionScanOut(BaseModel):
+    id: int
+    checkpoint_id: int
+    checkpoint_name: str
+    scanned_at: datetime
+    is_valid: bool
+    invalid_reason: ScanInvalidReason | None
+    distance_to_checkpoint_m: float

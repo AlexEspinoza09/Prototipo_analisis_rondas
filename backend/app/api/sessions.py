@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,8 +11,21 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_roles
-from app.models import PatrolSession, Route, SessionStatus, TelemetryPoint, User, UserRole
-from app.schemas.session import SessionOut, SessionStartIn
+from app.models import (
+    Checkpoint,
+    PatrolSession,
+    Route,
+    Scan,
+    SessionStatus,
+    TelemetryPoint,
+    User,
+    UserRole,
+)
+from app.schemas.scan import SessionScanOut
+from app.schemas.session import SessionListOut, SessionOut, SessionStartIn
+from app.tasks.analysis import analyze_session_route_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -62,6 +76,31 @@ def start_session(
     return session
 
 
+@router.get("/mine", response_model=list[SessionListOut])
+def my_sessions(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = 50,
+) -> list[SessionListOut]:
+    """Session history for the authenticated guard (mobile app)."""
+    rows = db.execute(
+        select(PatrolSession, User.full_name, Route.name)
+        .join(User, PatrolSession.guard_id == User.id)
+        .join(Route, PatrolSession.route_id == Route.id)
+        .where(PatrolSession.guard_id == user.id)
+        .order_by(PatrolSession.started_at.desc())
+        .limit(min(limit, 200))
+    )
+    return [
+        SessionListOut(
+            **SessionOut.model_validate(session).model_dump(),
+            guard_name=guard_name,
+            route_name=route_name,
+        )
+        for session, guard_name, route_name in rows
+    ]
+
+
 @router.post("/{session_id}/end", response_model=SessionOut)
 def end_session(
     session_id: int,
@@ -77,7 +116,10 @@ def end_session(
     session.status = SessionStatus.completed
     db.commit()
     db.refresh(session)
-    # Etapa 3: enqueue the Celery route-analysis task here (rule 3).
+    try:
+        analyze_session_route_task.delay(session.id)
+    except Exception:  # a broker outage must not break the mobile flow
+        logger.warning("Could not enqueue route analysis for session %s", session.id)
     return session
 
 
@@ -118,14 +160,51 @@ def session_track(
     }
 
 
-@router.get("", response_model=list[SessionOut])
+@router.get("", response_model=list[SessionListOut])
 def list_sessions(
     user: User = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
     db: Session = Depends(get_db),
     limit: int = 50,
-) -> list[PatrolSession]:
-    return list(
-        db.scalars(
-            select(PatrolSession).order_by(PatrolSession.started_at.desc()).limit(min(limit, 200))
-        )
+) -> list[SessionListOut]:
+    rows = db.execute(
+        select(PatrolSession, User.full_name, Route.name)
+        .join(User, PatrolSession.guard_id == User.id)
+        .join(Route, PatrolSession.route_id == Route.id)
+        .order_by(PatrolSession.started_at.desc())
+        .limit(min(limit, 200))
     )
+    return [
+        SessionListOut(
+            **SessionOut.model_validate(session).model_dump(),
+            guard_name=guard_name,
+            route_name=route_name,
+        )
+        for session, guard_name, route_name in rows
+    ]
+
+
+@router.get("/{session_id}/scans", response_model=list[SessionScanOut])
+def session_scans(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[SessionScanOut]:
+    session = _get_session_authorized(db, session_id, user)
+    rows = db.execute(
+        select(Scan, Checkpoint.name)
+        .join(Checkpoint, Scan.checkpoint_id == Checkpoint.id)
+        .where(Scan.session_id == session.id)
+        .order_by(Scan.scanned_at)
+    )
+    return [
+        SessionScanOut(
+            id=scan.id,
+            checkpoint_id=scan.checkpoint_id,
+            checkpoint_name=checkpoint_name,
+            scanned_at=scan.scanned_at,
+            is_valid=scan.is_valid,
+            invalid_reason=scan.invalid_reason,
+            distance_to_checkpoint_m=round(scan.distance_to_checkpoint_m, 1),
+        )
+        for scan, checkpoint_name in rows
+    ]

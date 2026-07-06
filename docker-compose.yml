@@ -66,5 +66,21 @@ services:
       redis:
         condition: service_healthy
 
+  dashboard:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    restart: on-failure
+    environment:
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - ./dashboard:/app
+      - dashboard_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
+  dashboard_node_modules:

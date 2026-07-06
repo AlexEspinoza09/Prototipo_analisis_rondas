@@ -6,6 +6,7 @@ container used in development.
 """
 
 from collections.abc import Generator
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,6 +58,15 @@ def db(engine: Engine) -> Generator[Session, None, None]:
     session.close()
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE TABLE {ALL_TABLES} RESTART IDENTITY CASCADE"))
+
+
+@pytest.fixture(autouse=True)
+def _no_celery_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API endpoints must not enqueue real Celery tasks during tests."""
+    monkeypatch.setattr(
+        "app.api.sessions.analyze_session_route_task",
+        SimpleNamespace(delay=lambda *args, **kwargs: None),
+    )
 
 
 @pytest.fixture()

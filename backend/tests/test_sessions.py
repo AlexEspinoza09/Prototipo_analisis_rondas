@@ -50,6 +50,19 @@ def test_guard_cannot_end_another_guards_session(db, client):
     assert scenario.session.status == SessionStatus.in_progress
 
 
+def test_my_sessions_returns_only_own_history(db, client):
+    scenario = create_patrol_scenario(db, client)
+    other = create_guard(db, email="otro@test.ec")
+    other_headers = auth_headers(client, other.email)
+
+    mine = client.get("/sessions/mine", headers=scenario.headers)
+    assert mine.status_code == 200
+    assert [s["id"] for s in mine.json()] == [scenario.session.id]
+    assert mine.json()[0]["route_name"] == scenario.route.name
+
+    assert client.get("/sessions/mine", headers=other_headers).json() == []
+
+
 def test_track_returns_geojson_feature(db, client):
     from tests.factories import add_telemetry_window
 

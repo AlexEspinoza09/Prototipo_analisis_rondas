@@ -44,6 +44,20 @@ def create_guard(db: Session, email: str = "guardia@test.ec") -> User:
     return guard
 
 
+def create_staff(
+    db: Session, email: str = "supervisor@test.ec", role: UserRole = UserRole.supervisor
+) -> User:
+    staff = User(
+        full_name="Supervisor de Prueba",
+        email=email,
+        hashed_password=hash_password(GUARD_PASSWORD),
+        role=role,
+    )
+    db.add(staff)
+    db.commit()
+    return staff
+
+
 def auth_headers(client: TestClient, email: str, password: str = GUARD_PASSWORD) -> dict[str, str]:
     response = client.post("/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text

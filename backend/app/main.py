@@ -3,11 +3,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import auth, scans, sessions, telemetry
+from app.api import (
+    anomalies,
+    auth,
+    checkpoints,
+    dashboard,
+    routes,
+    scans,
+    sessions,
+    sites,
+    telemetry,
+    users,
+)
 from app.core.config import settings
 from app.core.db import get_db
 
-app = FastAPI(title=settings.app_name, version="0.2.0")
+app = FastAPI(title=settings.app_name, version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,6 +32,12 @@ app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(telemetry.router)
 app.include_router(scans.router)
+app.include_router(anomalies.router)
+app.include_router(dashboard.router)
+app.include_router(sites.router)
+app.include_router(checkpoints.router)
+app.include_router(routes.router)
+app.include_router(users.router)
 
 
 @app.get("/health")

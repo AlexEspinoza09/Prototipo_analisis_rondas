@@ -20,3 +20,8 @@ class SessionOut(BaseModel):
     ended_at: datetime | None
     status: SessionStatus
     device_id: str
+
+
+class SessionListOut(SessionOut):
+    guard_name: str
+    route_name: str

@@ -11,6 +11,7 @@ Prototipo de tesis para Protemaxi (Ecuador): detección de fraude y anomalías e
 | `beat` | Celery Beat (tareas nocturnas) | — |
 | `postgres` | PostgreSQL 16 + PostGIS 3.4 | 5432 |
 | `redis` | Redis 7 (broker de Celery) | 6379 |
+| `dashboard` | React 18 + Vite + MapLibre + Recharts | 5173 |
 
 ```
 .
@@ -40,9 +41,12 @@ Las migraciones de Alembic se aplican automáticamente al arrancar el servicio `
 
 ### Verificar que todo funciona
 
+- **Dashboard web**: http://localhost:5173 (login: `admin@protemaxi.ec / Admin123!`)
 - API y documentación interactiva: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 - Health check de base de datos (incluye versión de PostGIS): http://localhost:8000/health/db
+
+La primera vez el servicio `dashboard` ejecuta `npm install` dentro del contenedor (tarda unos minutos); las siguientes veces arranca directo.
 
 ```bash
 # Logs de un servicio
@@ -64,6 +68,17 @@ docker compose exec postgres psql -U rondas -d rondas
 | Guardia | guardia2@protemaxi.ec | Guardia123! |
 
 El script de seeds imprime los UUID de los códigos QR de los 4 checkpoints al ejecutarse.
+
+## Dashboard (Etapa 4)
+
+En http://localhost:5173, solo para roles `admin` y `supervisor`:
+
+- **Mapa de rondas**: selector de sesión; trayectoria real (azul) vs. ruta esperada (gris punteada); checkpoints numerados y coloreados por estado del escaneo (verde válido, rojo inválido, gris no visitado); lista de escaneos de la sesión.
+- **Anomalías**: filtros por tipo, severidad, estado y guardia; filas expandibles con la evidencia JSONB legible; marcar revisada/pendiente.
+- **KPIs**: rondas hoy/7 días, % escaneos válidos, anomalías abiertas; gráficas de rondas por día, escaneos válidos vs. inválidos y anomalías por tipo; tabla de actividad por guardia.
+- **Administración**: checkpoints (clic en el mapa para ubicar, radio configurable, QR imprimible), rutas (trazo dibujado con clics + asignación ordenada de checkpoints con offsets), personal (crear usuarios, activar/desactivar, eliminar).
+
+Endpoints añadidos en esta etapa: `GET/PATCH /anomalies`, `GET /dashboard/summary`, `GET /auth/me`, `GET /sessions/{id}/scans`, y CRUD de `/sites`, `/checkpoints`, `/routes`, `/users`.
 
 ## API (Etapa 2)
 
@@ -87,6 +102,31 @@ Reglas de negocio implementadas en `/scans`:
 
 Un segundo escaneo del mismo checkpoint en la misma sesión se marca `duplicate` (sin anomalía).
 
+## Análisis asíncrono (Etapa 3)
+
+Al cerrar una sesión, `POST /sessions/{id}/end` encola la tarea `analyze_session_route` en el worker de Celery:
+
+3. **Desviación de ruta**: se construye la trayectoria real (`ST_MakeLine` de la telemetría) y se compara contra `routes.expected_path` con `ST_FrechetDistance`, proyectando ambas a UTM 17S (`PROJECTION_SRID=32717`) para medir en metros. Si supera `ROUTE_FRECHET_THRESHOLD_M` (100 m) → anomalía `route_deviation` (`high` si ≥ 2× el umbral).
+   Además se detectan **velocidades imposibles**: rachas de velocidad implícita entre puntos consecutivos > `IMPOSSIBLE_SPEED_MPS` (3.5 m/s) sostenidas ≥ `IMPOSSIBLE_SPEED_MIN_DURATION_S` (30 s) → anomalía `impossible_speed` por racha.
+4. **Patrón degradante**: Celery Beat ejecuta `nightly_performance_analysis` cada día a las 03:00 (America/Guayaquil). Por guardia compara los últimos 7 días vs. los 21 anteriores en rondas/día, distancia/día y minutos activos/día; caída > `PERFORMANCE_DECLINE_RATIO` (30%) → anomalía `performance_decline` (severidad según magnitud). Idempotente por guardia y día.
+
+Ambas tareas son idempotentes (re-ejecutarlas no duplica anomalías).
+
+```bash
+# Disparar manualmente el análisis nocturno
+docker compose exec worker celery -A app.tasks.celery_app:celery_app call app.tasks.nightly_performance_analysis
+```
+
+## App móvil (Etapa 5)
+
+En [mobile/](mobile/): app Expo para los guardias (login, rutas, ronda activa con mapa MapLibre, escáner QR con feedback verde/rojo, historial). Requiere *development build* (no Expo Go); instrucciones completas de EAS en [mobile/README.md](mobile/README.md):
+
+```bash
+cd mobile && npm install && cp .env.example .env
+eas build --profile development --platform android   # dev build
+eas build --profile preview --platform android       # APK para distribuir
+```
+
 ## Migraciones
 
 ```bash
@@ -102,7 +142,7 @@ Nota: la tabla `telemetry_points` está particionada por mes sobre `recorded_at`
 ## Estado del proyecto
 
 - ✅ **Etapa 1 — Fundación**: monorepo, Docker Compose, esqueleto FastAPI, esquema completo con Alembic, seeds.
-- ✅ **Etapa 2 — Core del backend**: auth JWT, sesiones, telemetría batch idempotente, escaneos con validación geográfica e inmovilidad, 19 tests.
-- ⬜ Etapa 3 — Análisis asíncrono (Celery: desviación de ruta, patrón degradante)
-- ⬜ Etapa 4 — Dashboard (React + MapLibre + Recharts)
-- ⬜ Etapa 5 — App móvil (Expo)
+- ✅ **Etapa 2 — Core del backend**: auth JWT, sesiones, telemetría batch idempotente, escaneos con validación geográfica e inmovilidad.
+- ✅ **Etapa 3 — Análisis asíncrono**: desviación de ruta (Fréchet), velocidades imposibles y patrón degradante nocturno con Celery + Beat.
+- ✅ **Etapa 4 — Dashboard**: mapa de sesiones (trayectoria real vs. esperada, checkpoints coloreados), tabla de anomalías con evidencia expandible, KPIs con Recharts y administración (checkpoints con QR imprimible, rutas dibujadas sobre el mapa, personal).
+- ✅ **Etapa 5 — App móvil**: Expo (development build) con GPS en background + buffer SQLite + sincronización con backoff, escaneo QR con validación de señal y feedback inmediato, historial. Ver [mobile/README.md](mobile/README.md) para generar el dev build y el APK con EAS. 33 tests backend.

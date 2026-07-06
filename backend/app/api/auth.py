@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.deps import get_current_user
 from app.core.security import (
     REFRESH_TOKEN_TYPE,
     create_access_token,
@@ -13,6 +14,7 @@ from app.core.security import (
 )
 from app.models import User
 from app.schemas.auth import LoginRequest, RefreshRequest, TokenPairOut
+from app.schemas.user import UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -36,6 +38,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenPairOut:
     if not verify_password(payload.password, user.hashed_password):
         raise _invalid_credentials
     return _token_pair(user)
+
+
+@router.get("/me", response_model=UserOut)
+def me(user: User = Depends(get_current_user)) -> User:
+    return user
 
 
 @router.post("/refresh", response_model=TokenPairOut)

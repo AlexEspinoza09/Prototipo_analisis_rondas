@@ -18,4 +18,6 @@ class Site(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    checkpoints: Mapped[list["Checkpoint"]] = relationship(back_populates="site")  # noqa: F821
+    checkpoints: Mapped[list["Checkpoint"]] = relationship(  # noqa: F821
+        back_populates="site", cascade="all, delete-orphan", passive_deletes=True
+    )

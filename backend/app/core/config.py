@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # Severity banding for fraudulent scans, as multiples of the checkpoint radius
     fraud_severity_medium_ratio: float = 2.0
     fraud_severity_high_ratio: float = 5.0
+    # Projected SRID used for Fréchet distance (UTM 17S covers mainland Ecuador)
+    projection_srid: int = 32717
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
