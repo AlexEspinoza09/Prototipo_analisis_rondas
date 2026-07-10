@@ -5,7 +5,9 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "com.protemaxi.rondas",
       "permissions": [
@@ -32,7 +34,8 @@
           "cameraPermission": "La cámara se usa para escanear los códigos QR de los checkpoints."
         }
       ],
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      "expo-asset"
     ]
   }
 }
