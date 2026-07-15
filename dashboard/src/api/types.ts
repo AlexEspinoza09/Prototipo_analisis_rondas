@@ -27,6 +27,8 @@ export interface SessionListItem {
   device_id: string;
   guard_name: string;
   route_name: string;
+  scans_valid: number;
+  scans_invalid: number;
 }
 
 export interface TrackFeature {

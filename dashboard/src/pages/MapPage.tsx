@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import MapView, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
 
 import { api } from '../api/client';
@@ -28,7 +29,11 @@ const STATE_LABEL: Record<CheckpointState, string> = {
 };
 
 export function MapPage() {
-  const [sessionId, setSessionId] = useState<number | null>(null);
+  // Allow deep-linking a session from the "Rondas" records view (?sesion=ID).
+  const [searchParams] = useSearchParams();
+  const [sessionId, setSessionId] = useState<number | null>(
+    Number(searchParams.get('sesion')) || null,
+  );
   const mapRef = useRef<MapRef | null>(null);
 
   const sessions = useQuery({

@@ -20,6 +20,9 @@ export function Layout() {
           <NavLink to="/mapa" className={linkClass}>
             Mapa de rondas
           </NavLink>
+          <NavLink to="/rondas" className={linkClass}>
+            Rondas
+          </NavLink>
           <NavLink to="/anomalias" className={linkClass}>
             Anomalías
           </NavLink>

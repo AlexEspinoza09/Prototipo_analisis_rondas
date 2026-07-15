@@ -76,6 +76,38 @@ def start_session(
     return session
 
 
+def _list_sessions_with_scan_counts(
+    db: Session, limit: int, guard_id: int | None = None
+) -> list[SessionListOut]:
+    query = (
+        select(
+            PatrolSession,
+            User.full_name,
+            Route.name,
+            func.count(Scan.id).filter(Scan.is_valid.is_(True)).label("scans_valid"),
+            func.count(Scan.id).filter(Scan.is_valid.is_(False)).label("scans_invalid"),
+        )
+        .join(User, PatrolSession.guard_id == User.id)
+        .join(Route, PatrolSession.route_id == Route.id)
+        .outerjoin(Scan, Scan.session_id == PatrolSession.id)
+        .group_by(PatrolSession.id, User.full_name, Route.name)
+        .order_by(PatrolSession.started_at.desc())
+        .limit(min(limit, 200))
+    )
+    if guard_id is not None:
+        query = query.where(PatrolSession.guard_id == guard_id)
+    return [
+        SessionListOut(
+            **SessionOut.model_validate(session).model_dump(),
+            guard_name=guard_name,
+            route_name=route_name,
+            scans_valid=scans_valid,
+            scans_invalid=scans_invalid,
+        )
+        for session, guard_name, route_name, scans_valid, scans_invalid in db.execute(query)
+    ]
+
+
 @router.get("/mine", response_model=list[SessionListOut])
 def my_sessions(
     user: User = Depends(get_current_user),
@@ -83,22 +115,7 @@ def my_sessions(
     limit: int = 50,
 ) -> list[SessionListOut]:
     """Session history for the authenticated guard (mobile app)."""
-    rows = db.execute(
-        select(PatrolSession, User.full_name, Route.name)
-        .join(User, PatrolSession.guard_id == User.id)
-        .join(Route, PatrolSession.route_id == Route.id)
-        .where(PatrolSession.guard_id == user.id)
-        .order_by(PatrolSession.started_at.desc())
-        .limit(min(limit, 200))
-    )
-    return [
-        SessionListOut(
-            **SessionOut.model_validate(session).model_dump(),
-            guard_name=guard_name,
-            route_name=route_name,
-        )
-        for session, guard_name, route_name in rows
-    ]
+    return _list_sessions_with_scan_counts(db, limit, guard_id=user.id)
 
 
 @router.post("/{session_id}/end", response_model=SessionOut)
@@ -166,21 +183,7 @@ def list_sessions(
     db: Session = Depends(get_db),
     limit: int = 50,
 ) -> list[SessionListOut]:
-    rows = db.execute(
-        select(PatrolSession, User.full_name, Route.name)
-        .join(User, PatrolSession.guard_id == User.id)
-        .join(Route, PatrolSession.route_id == Route.id)
-        .order_by(PatrolSession.started_at.desc())
-        .limit(min(limit, 200))
-    )
-    return [
-        SessionListOut(
-            **SessionOut.model_validate(session).model_dump(),
-            guard_name=guard_name,
-            route_name=route_name,
-        )
-        for session, guard_name, route_name in rows
-    ]
+    return _list_sessions_with_scan_counts(db, limit)
 
 
 @router.get("/{session_id}/scans", response_model=list[SessionScanOut])

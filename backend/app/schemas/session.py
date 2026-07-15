@@ -25,3 +25,5 @@ class SessionOut(BaseModel):
 class SessionListOut(SessionOut):
     guard_name: str
     route_name: str
+    scans_valid: int
+    scans_invalid: int
