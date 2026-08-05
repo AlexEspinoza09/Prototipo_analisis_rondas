@@ -42,6 +42,7 @@ export interface TrackFeature {
     started_at: string;
     ended_at: string | null;
     point_count: number;
+    times: string[];
   };
 }
 

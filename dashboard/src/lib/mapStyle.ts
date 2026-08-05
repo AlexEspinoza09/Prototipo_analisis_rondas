@@ -15,3 +15,7 @@ export const OSM_STYLE: StyleSpecification = {
 };
 
 export const DEFAULT_VIEW = { longitude: -78.488, latitude: -0.176, zoom: 15 };
+
+// Free vector tiles (no token, no limits) — needed for 3D building extrusion,
+// which raster OSM tiles cannot provide. https://openfreemap.org
+export const VECTOR_3D_STYLE = 'https://tiles.openfreemap.org/styles/liberty';

@@ -149,7 +149,7 @@ def session_track(
     """GeoJSON Feature with the session trajectory as a LineString."""
     session = _get_session_authorized(db, session_id, user)
 
-    point_count, line_geojson = db.execute(
+    point_count, line_geojson, point_times = db.execute(
         select(
             func.count(),
             func.ST_AsGeoJSON(
@@ -158,6 +158,9 @@ def session_track(
                         cast(TelemetryPoint.location, Geometry()), TelemetryPoint.recorded_at
                     )
                 )
+            ),
+            func.array_agg(
+                aggregate_order_by(TelemetryPoint.recorded_at, TelemetryPoint.recorded_at)
             ),
         ).where(TelemetryPoint.session_id == session.id)
     ).one()
@@ -173,6 +176,8 @@ def session_track(
             "started_at": session.started_at.isoformat(),
             "ended_at": session.ended_at.isoformat() if session.ended_at else None,
             "point_count": point_count,
+            # One timestamp per coordinate, same order: enables animated playback.
+            "times": [t.isoformat() for t in point_times] if point_times else [],
         },
     }
 
