@@ -75,6 +75,12 @@ class SessionBuilder:
                 "accuracy_m": self.rng.uniform(5, 12),
                 "speed_mps": max(0.0, speed + self.rng.gauss(0, 0.15)),
                 "accel_magnitude": max(0.15, accel),
+                # Angular speed (rad/s): a phone in a walking guard's pocket
+                # swings noticeably; standing still it barely rotates.
+                "gyro_magnitude": max(
+                    0.0,
+                    self.rng.gauss(1.4, 0.3) if moving else self.rng.gauss(0.05, 0.02),
+                ),
                 "is_moving": moving,
             }
         )

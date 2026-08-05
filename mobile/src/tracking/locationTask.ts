@@ -1,8 +1,13 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
-import { ACCEL_MAX_AGE_MS, GPS_INTERVAL_MS, IS_MOVING_THRESHOLD_MPS2 } from '../config';
+import {
+  GPS_INTERVAL_MS,
+  IS_MOVING_THRESHOLD_MPS2,
+  IS_MOVING_THRESHOLD_RADS,
+} from '../config';
 import { deleteKv, getKv, insertTelemetry, setKv } from '../db/local';
+import { sampleSensorWindow, type SensorWindow } from './sensors';
 
 export const LOCATION_TASK = 'rondas-location-task';
 
@@ -13,20 +18,13 @@ export interface LastFix {
   ts: number;
 }
 
-interface AccelWindow {
-  value: number;
-  ts: number;
-}
-
-function readRecentAccel(): AccelWindow | null {
-  const raw = getKv('last_accel');
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as AccelWindow;
-    return Date.now() - parsed.ts <= ACCEL_MAX_AGE_MS ? parsed : null;
-  } catch {
-    return null;
-  }
+/** null when neither sensor reported, so the backend defers business rule 2. */
+function deriveIsMoving(sensors: SensorWindow): number | null {
+  const { accel_magnitude: accel, gyro_magnitude: gyro } = sensors;
+  if (accel === null && gyro === null) return null;
+  const moving =
+    (accel ?? 0) > IS_MOVING_THRESHOLD_MPS2 || (gyro ?? 0) > IS_MOVING_THRESHOLD_RADS;
+  return moving ? 1 : 0;
 }
 
 export function readLastFix(): LastFix | null {
@@ -52,7 +50,10 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   if (sessionId === null) return;
 
   const { locations } = data as { locations: Location.LocationObject[] };
-  const accel = readRecentAccel();
+  // Sampled here, inside the headless context, so readings keep coming with the
+  // app in background — the foreground service makes the sensors available.
+  const sensors = await sampleSensorWindow();
+  const isMoving = deriveIsMoving(sensors);
 
   for (const location of locations) {
     const accuracy = location.coords.accuracy ?? 999;
@@ -65,8 +66,9 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
       speed_mps: location.coords.speed !== null && location.coords.speed >= 0
         ? location.coords.speed
         : null,
-      accel_magnitude: accel?.value ?? null,
-      is_moving: accel !== null ? (accel.value > IS_MOVING_THRESHOLD_MPS2 ? 1 : 0) : null,
+      accel_magnitude: sensors.accel_magnitude,
+      gyro_magnitude: sensors.gyro_magnitude,
+      is_moving: isMoving,
     });
     setKv(
       'last_fix',

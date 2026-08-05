@@ -8,6 +8,7 @@ class TelemetryPointIn(BaseModel):
     accuracy_m: float = Field(ge=0)
     speed_mps: float | None = Field(default=None, ge=0)
     accel_magnitude: float | None = Field(default=None, ge=0)
+    gyro_magnitude: float | None = Field(default=None, ge=0)
     is_moving: bool | None = None
 
 

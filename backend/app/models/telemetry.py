@@ -33,4 +33,5 @@ class TelemetryPoint(Base):
     accuracy_m: Mapped[float] = mapped_column(Float, nullable=False)
     speed_mps: Mapped[float | None] = mapped_column(Float)
     accel_magnitude: Mapped[float | None] = mapped_column(Float)
+    gyro_magnitude: Mapped[float | None] = mapped_column(Float)
     is_moving: Mapped[bool | None] = mapped_column()

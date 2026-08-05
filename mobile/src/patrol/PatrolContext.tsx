@@ -11,7 +11,6 @@ import {
 import { api } from '../api/client';
 import type { PatrolSession, RouteItem } from '../api/types';
 import { deleteKv, getKv, setKv } from '../db/local';
-import { startAccelSampling, stopAccelSampling } from '../tracking/accelerometer';
 import { startTracking, stopTracking } from '../tracking/locationTask';
 import { flushNow, startSync, stopSync } from '../tracking/sync';
 
@@ -44,7 +43,6 @@ export function PatrolProvider({ children }: { children: ReactNode }) {
       try {
         const saved = JSON.parse(raw) as ActivePatrol;
         setPatrol(saved);
-        startAccelSampling();
         startSync();
       } catch {
         deleteKv(KV_KEY);
@@ -78,7 +76,6 @@ export function PatrolProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ route_id: route.id, device_id: deviceId }),
     });
     await startTracking(session.id);
-    startAccelSampling();
     startSync();
     persist({ sessionId: session.id, route, scannedCheckpointIds: [] });
   }, []);
@@ -86,7 +83,6 @@ export function PatrolProvider({ children }: { children: ReactNode }) {
   const endPatrol = useCallback(async () => {
     if (!patrol) return;
     await stopTracking();
-    stopAccelSampling();
     await flushNow();
     stopSync();
     await api(`/sessions/${patrol.sessionId}/end`, { method: 'POST' });

@@ -23,6 +23,7 @@ function toPayloadPoint(point: BufferedPoint) {
     accuracy_m: point.accuracy_m,
     speed_mps: point.speed_mps,
     accel_magnitude: point.accel_magnitude,
+    gyro_magnitude: point.gyro_magnitude,
     is_moving: point.is_moving === null ? null : point.is_moving === 1,
   };
 }

@@ -98,7 +98,7 @@ Todos los endpoints (salvo login/refresh y health) requieren `Authorization: Bea
 Reglas de negocio implementadas en `/scans`:
 
 1. **Validación geográfica**: si `ST_Distance(scan, checkpoint) > radius_m` → escaneo inválido (`out_of_range`) + anomalía `fraudulent_scan` con severidad según la distancia (configurable vía `FRAUD_SEVERITY_*_RATIO`).
-2. **Inmovilidad previa**: si en los 5 minutos previos el promedio de `accel_magnitude` está bajo el umbral de caminata o `is_moving=false` en >80% de los puntos → escaneo inválido (`no_prior_movement`) + anomalía `inactivity`. Sin telemetría en la ventana, la regla se difiere.
+2. **Inmovilidad previa**: si en los 5 minutos previos el promedio de `accel_magnitude` está bajo el umbral de caminata o `is_moving=false` en >80% de los puntos → escaneo inválido (`no_prior_movement`) + anomalía `inactivity`. Sin telemetría en la ventana, la regla se difiere. La app deriva `is_moving` del acelerómetro **y** del giroscopio (ver [mobile/README.md](mobile/README.md)).
 
 Un segundo escaneo del mismo checkpoint en la misma sesión se marca `duplicate` (sin anomalía).
 
@@ -145,4 +145,4 @@ Nota: la tabla `telemetry_points` está particionada por mes sobre `recorded_at`
 - ✅ **Etapa 2 — Core del backend**: auth JWT, sesiones, telemetría batch idempotente, escaneos con validación geográfica e inmovilidad.
 - ✅ **Etapa 3 — Análisis asíncrono**: desviación de ruta (Fréchet), velocidades imposibles y patrón degradante nocturno con Celery + Beat.
 - ✅ **Etapa 4 — Dashboard**: mapa de sesiones (trayectoria real vs. esperada, checkpoints coloreados), tabla de anomalías con evidencia expandible, KPIs con Recharts y administración (checkpoints con QR imprimible, rutas dibujadas sobre el mapa, personal).
-- ✅ **Etapa 5 — App móvil**: Expo (development build) con GPS en background + buffer SQLite + sincronización con backoff, escaneo QR con validación de señal y feedback inmediato, historial. Ver [mobile/README.md](mobile/README.md) para generar el dev build y el APK con EAS. 33 tests backend.
+- ✅ **Etapa 5 — App móvil**: Expo (development build) con GPS en background + buffer SQLite + sincronización con backoff, escaneo QR con validación de señal y feedback inmediato, historial. Acelerómetro y giroscopio se muestrean dentro del task de ubicación, por lo que siguen registrando con la pantalla apagada. Ver [mobile/README.md](mobile/README.md) para generar el dev build y el APK con EAS. 36 tests backend.

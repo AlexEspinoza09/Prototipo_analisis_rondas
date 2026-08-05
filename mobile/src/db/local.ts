@@ -14,6 +14,7 @@ db.execSync(`
     accuracy_m REAL NOT NULL,
     speed_mps REAL,
     accel_magnitude REAL,
+    gyro_magnitude REAL,
     is_moving INTEGER,
     UNIQUE(session_id, recorded_at)
   );
@@ -22,6 +23,13 @@ db.execSync(`
     value TEXT NOT NULL
   );
 `);
+
+// Installs created before the gyroscope was added keep the old table, which
+// CREATE TABLE IF NOT EXISTS leaves untouched — add the column in place.
+const bufferColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(telemetry_buffer)');
+if (!bufferColumns.some((column) => column.name === 'gyro_magnitude')) {
+  db.execSync('ALTER TABLE telemetry_buffer ADD COLUMN gyro_magnitude REAL');
+}
 
 export interface BufferedPoint {
   id: number;
@@ -32,14 +40,16 @@ export interface BufferedPoint {
   accuracy_m: number;
   speed_mps: number | null;
   accel_magnitude: number | null;
+  gyro_magnitude: number | null;
   is_moving: number | null;
 }
 
 export function insertTelemetry(point: Omit<BufferedPoint, 'id'>): void {
   db.runSync(
     `INSERT OR IGNORE INTO telemetry_buffer
-     (session_id, recorded_at, lat, lng, accuracy_m, speed_mps, accel_magnitude, is_moving)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     (session_id, recorded_at, lat, lng, accuracy_m, speed_mps, accel_magnitude,
+      gyro_magnitude, is_moving)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       point.session_id,
       point.recorded_at,
@@ -48,6 +58,7 @@ export function insertTelemetry(point: Omit<BufferedPoint, 'id'>): void {
       point.accuracy_m,
       point.speed_mps,
       point.accel_magnitude,
+      point.gyro_magnitude,
       point.is_moving,
     ],
   );
