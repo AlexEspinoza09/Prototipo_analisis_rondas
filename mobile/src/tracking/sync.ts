@@ -15,17 +15,11 @@ let backoffMs = SYNC_BACKOFF_START_MS;
 let blockedUntil = 0;
 let running = false;
 
-function toPayloadPoint(point: BufferedPoint) {
-  return {
-    recorded_at: point.recorded_at,
-    lat: point.lat,
-    lng: point.lng,
-    accuracy_m: point.accuracy_m,
-    speed_mps: point.speed_mps,
-    accel_magnitude: point.accel_magnitude,
-    gyro_magnitude: point.gyro_magnitude,
-    is_moving: point.is_moving === null ? null : point.is_moving === 1,
-  };
+// Buffer column names match the API schema, so everything passes straight
+// through except the local row id, the session (sent once per batch) and
+// is_moving, which SQLite stores as 0/1.
+function toPayloadPoint({ id, session_id, is_moving, ...fields }: BufferedPoint) {
+  return { ...fields, is_moving: is_moving === null ? null : is_moving === 1 };
 }
 
 /** Push every buffered point to the backend, one batch per session. */

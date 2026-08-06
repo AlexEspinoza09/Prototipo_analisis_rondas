@@ -14,7 +14,6 @@ db.execSync(`
     accuracy_m REAL NOT NULL,
     speed_mps REAL,
     accel_magnitude REAL,
-    gyro_magnitude REAL,
     is_moving INTEGER,
     UNIQUE(session_id, recorded_at)
   );
@@ -24,11 +23,31 @@ db.execSync(`
   );
 `);
 
-// Installs created before the gyroscope was added keep the old table, which
-// CREATE TABLE IF NOT EXISTS leaves untouched — add the column in place.
-const bufferColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(telemetry_buffer)');
-if (!bufferColumns.some((column) => column.name === 'gyro_magnitude')) {
-  db.execSync('ALTER TABLE telemetry_buffer ADD COLUMN gyro_magnitude REAL');
+// Columns added after the first release. CREATE TABLE IF NOT EXISTS leaves an
+// existing table untouched, so upgrades from an older install need these added
+// in place — otherwise the buffered points waiting to sync would be lost.
+const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
+  ['gyro_magnitude', 'REAL'],
+  ['accel_std', 'REAL'],
+  ['accel_max', 'REAL'],
+  ['gyro_std', 'REAL'],
+  ['gyro_max', 'REAL'],
+  ['accel_dominant_hz', 'REAL'],
+  ['accel_peak_ratio', 'REAL'],
+  ['gyro_dominant_hz', 'REAL'],
+  ['gyro_peak_ratio', 'REAL'],
+  ['sensor_sample_count', 'INTEGER'],
+];
+
+const existingColumns = new Set(
+  db
+    .getAllSync<{ name: string }>('PRAGMA table_info(telemetry_buffer)')
+    .map((column) => column.name),
+);
+for (const [name, type] of ADDED_COLUMNS) {
+  if (!existingColumns.has(name)) {
+    db.execSync(`ALTER TABLE telemetry_buffer ADD COLUMN ${name} ${type}`);
+  }
 }
 
 export interface BufferedPoint {
@@ -41,26 +60,46 @@ export interface BufferedPoint {
   speed_mps: number | null;
   accel_magnitude: number | null;
   gyro_magnitude: number | null;
+  accel_std: number | null;
+  accel_max: number | null;
+  gyro_std: number | null;
+  gyro_max: number | null;
+  accel_dominant_hz: number | null;
+  accel_peak_ratio: number | null;
+  gyro_dominant_hz: number | null;
+  gyro_peak_ratio: number | null;
+  sensor_sample_count: number | null;
   is_moving: number | null;
 }
 
+// Written on every insert and read back verbatim by the sync payload; the names
+// match the API schema fields one-to-one.
+const POINT_COLUMNS = [
+  'session_id',
+  'recorded_at',
+  'lat',
+  'lng',
+  'accuracy_m',
+  'speed_mps',
+  'accel_magnitude',
+  'gyro_magnitude',
+  'accel_std',
+  'accel_max',
+  'gyro_std',
+  'gyro_max',
+  'accel_dominant_hz',
+  'accel_peak_ratio',
+  'gyro_dominant_hz',
+  'gyro_peak_ratio',
+  'sensor_sample_count',
+  'is_moving',
+] as const satisfies ReadonlyArray<keyof Omit<BufferedPoint, 'id'>>;
+
 export function insertTelemetry(point: Omit<BufferedPoint, 'id'>): void {
   db.runSync(
-    `INSERT OR IGNORE INTO telemetry_buffer
-     (session_id, recorded_at, lat, lng, accuracy_m, speed_mps, accel_magnitude,
-      gyro_magnitude, is_moving)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      point.session_id,
-      point.recorded_at,
-      point.lat,
-      point.lng,
-      point.accuracy_m,
-      point.speed_mps,
-      point.accel_magnitude,
-      point.gyro_magnitude,
-      point.is_moving,
-    ],
+    `INSERT OR IGNORE INTO telemetry_buffer (${POINT_COLUMNS.join(', ')})
+     VALUES (${POINT_COLUMNS.map(() => '?').join(', ')})`,
+    POINT_COLUMNS.map((column) => point[column] ?? null),
   );
 }
 

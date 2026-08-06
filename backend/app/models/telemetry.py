@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from geoalchemy2 import Geography
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Identity, Index
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Identity, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -32,6 +32,17 @@ class TelemetryPoint(Base):
     )
     accuracy_m: Mapped[float] = mapped_column(Float, nullable=False)
     speed_mps: Mapped[float | None] = mapped_column(Float)
+    # Mean magnitudes over the sensor window.
     accel_magnitude: Mapped[float | None] = mapped_column(Float)
     gyro_magnitude: Mapped[float | None] = mapped_column(Float)
+    # Activity-recognition features over the same window (see migration 0003).
+    accel_std: Mapped[float | None] = mapped_column(Float)
+    accel_max: Mapped[float | None] = mapped_column(Float)
+    gyro_std: Mapped[float | None] = mapped_column(Float)
+    gyro_max: Mapped[float | None] = mapped_column(Float)
+    accel_dominant_hz: Mapped[float | None] = mapped_column(Float)
+    accel_peak_ratio: Mapped[float | None] = mapped_column(Float)
+    gyro_dominant_hz: Mapped[float | None] = mapped_column(Float)
+    gyro_peak_ratio: Mapped[float | None] = mapped_column(Float)
+    sensor_sample_count: Mapped[int | None] = mapped_column(Integer)
     is_moving: Mapped[bool | None] = mapped_column()

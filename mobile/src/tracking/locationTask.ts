@@ -66,8 +66,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
       speed_mps: location.coords.speed !== null && location.coords.speed >= 0
         ? location.coords.speed
         : null,
-      accel_magnitude: sensors.accel_magnitude,
-      gyro_magnitude: sensors.gyro_magnitude,
+      ...sensors,
       is_moving: isMoving,
     });
     setKv(
