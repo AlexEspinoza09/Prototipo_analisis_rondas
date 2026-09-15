@@ -1,7 +1,7 @@
 from app.models.anomaly import Anomaly, AnomalySeverity, AnomalyType
 from app.models.base import Base
 from app.models.checkpoint import Checkpoint
-from app.models.patrol_session import PatrolSession, SessionStatus
+from app.models.patrol_session import ActivityLabel, PatrolSession, SessionStatus
 from app.models.route import Route, RouteCheckpoint
 from app.models.scan import Scan, ScanInvalidReason
 from app.models.site import Site
@@ -20,6 +20,7 @@ __all__ = [
     "Scan",
     "ScanInvalidReason",
     "SessionStatus",
+    "ActivityLabel",
     "Site",
     "TelemetryPoint",
     "User",

@@ -22,7 +22,12 @@ from app.models import (
     UserRole,
 )
 from app.schemas.scan import SessionScanOut
-from app.schemas.session import SessionListOut, SessionOut, SessionStartIn
+from app.schemas.session import (
+    SessionLabelIn,
+    SessionListOut,
+    SessionOut,
+    SessionStartIn,
+)
 from app.tasks.analysis import analyze_session_route_task
 
 logger = logging.getLogger(__name__)
@@ -137,6 +142,26 @@ def end_session(
         analyze_session_route_task.delay(session.id)
     except Exception:  # a broker outage must not break the mobile flow
         logger.warning("Could not enqueue route analysis for session %s", session.id)
+    return session
+
+
+@router.patch("/{session_id}/label", response_model=SessionOut)
+def set_session_label(
+    session_id: int,
+    payload: SessionLabelIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PatrolSession:
+    """Tag a session with its ground-truth activity for the training dataset.
+
+    Applied after the fact rather than at start: during a collection campaign the
+    activity is known when the round is over, and keeping it out of the patrol
+    flow means the guard app needs no extra screen.
+    """
+    session = _get_session_authorized(db, session_id, user)
+    session.activity_label = payload.activity_label
+    db.commit()
+    db.refresh(session)
     return session
 
 

@@ -94,6 +94,7 @@ Todos los endpoints (salvo login/refresh y health) requieren `Authorization: Bea
 | GET | `/sessions` | Lista sesiones (admin/supervisor) |
 | POST | `/telemetry/batch` | Ingesta bulk idempotente de puntos GPS/sensores |
 | POST | `/scans` | Registra escaneo QR y valida en línea (reglas 1 y 2) |
+| PATCH | `/sessions/{id}/label` | Etiqueta la sesion para el dataset de actividad |
 
 Reglas de negocio implementadas en `/scans`:
 
@@ -126,6 +127,39 @@ cd mobile && npm install && cp .env.example .env
 eas build --profile development --platform android   # dev build
 eas build --profile preview --platform android       # APK para distribuir
 ```
+
+## Dataset de reconocimiento de actividad
+
+Los umbrales fijos no distinguen a un guardia que camina de uno que recorre la ronda en
+vehiculo, ni de uno que agita el telefono para simular movimiento: la media de aceleracion
+es parecida en los tres casos. Lo que los separa es la dispersion y el ritmo, y por eso cada
+ventana de sensores guarda desviacion estandar, maximo, frecuencia dominante (banda 0.5-5 Hz)
+y ratio de pico, ademas de la media. Ver [mobile/README.md](mobile/README.md).
+
+Para entrenar un clasificador sobre esas features hace falta verdad de terreno. El flujo es:
+
+```bash
+# 1. Grabar una ronda dedicada por actividad (caminar, quieto, vehiculo, agitar el telefono)
+#    desde la app movil, como una ronda normal.
+
+# 2. Etiquetar la sesion ya terminada (el guardia dueno de la sesion, admin o supervisor)
+curl -X PATCH http://localhost:8000/sessions/12/label   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"activity_label": "walking"}'
+
+# 3. Exportar el dataset listo para pandas/scikit-learn
+docker compose exec api python -m app.export_dataset --out /app/dataset.csv
+```
+
+Etiquetas validas: `walking`, `still`, `vehicle`, `shaking`. Las sesiones sin etiqueta
+(rondas reales) nunca entran al dataset.
+
+El export decide el **split train/test por sesion**, no por fila. Es deliberado: las ventanas
+de una misma sesion son casi identicas entre si, asi que un split aleatorio por fila coloca
+muestras casi duplicadas a ambos lados e infla el accuracy hasta un numero que no significa
+nada. Al venir la columna `split` ya resuelta en el CSV, el error no se puede cometer despues.
+
+El script tambien descarta ventanas con features incompletas (sin imputar nada), avisa cuando
+una clase tiene una sola sesion — no se puede evaluar — y recuerda que `speed_mps` viene del
+GPS, no de los sensores inerciales: incluirla hace la clase `vehicle` trivialmente separable.
 
 ## Migraciones
 
