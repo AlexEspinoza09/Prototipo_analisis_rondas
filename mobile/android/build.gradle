@@ -33,5 +33,20 @@ allprojects {
   }
 }
 
+// Windows only: with the project in a long folder, release native builds
+// (RelWithDebInfo) push CMake object paths past the 260-character MAX_PATH.
+// Keep every module's CMake build tree under a short folder instead. Must run
+// before the root plugins below, which force :app to be evaluated.
+if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+  subprojects { project ->
+    ['com.android.application', 'com.android.library'].each { pluginId ->
+      project.plugins.withId(pluginId) {
+        project.android.externalNativeBuild.cmake.buildStagingDirectory =
+          new File(System.getProperty('user.home'), ".cxx/${project.name}")
+      }
+    }
+  }
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

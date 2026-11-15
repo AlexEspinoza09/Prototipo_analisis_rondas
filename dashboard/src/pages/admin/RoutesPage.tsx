@@ -1,10 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import Map, { Layer, Marker, Source } from 'react-map-gl/maplibre';
+import { useMemo, useRef, useState } from 'react';
+import Map, {
+  GeolocateControl,
+  Layer,
+  Marker,
+  NavigationControl,
+  Source,
+  type MapRef,
+} from 'react-map-gl/maplibre';
 
 import { api, ApiError } from '../../api/client';
-import type { Checkpoint, RouteItem, Site } from '../../api/types';
+import type { Checkpoint, PatrolMode, RouteItem, Site } from '../../api/types';
+import { Icon } from '../../components/Icon';
+import {
+  ActiveBadge,
+  Alert,
+  PageHeader,
+  TableMessage,
+  useConfirm,
+} from '../../components/ui';
+import { PATROL_MODE_LABELS } from '../../lib/labels';
 import { DEFAULT_VIEW, OSM_STYLE } from '../../lib/mapStyle';
+import { useCenterOnDevice } from '../../lib/useCenterOnDevice';
 
 interface SelectedCheckpoint {
   checkpoint_id: number;
@@ -15,6 +32,7 @@ interface FormState {
   id: number | null;
   name: string;
   expected_duration_min: number;
+  patrol_mode: PatrolMode;
   path: [number, number][];
   checkpoints: SelectedCheckpoint[];
 }
@@ -23,6 +41,7 @@ const EMPTY_FORM: FormState = {
   id: null,
   name: '',
   expected_duration_min: 30,
+  patrol_mode: 'foot',
   path: [],
   checkpoints: [],
 };
@@ -32,6 +51,14 @@ export function RoutesPage() {
   const [siteId, setSiteId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+  const mapRef = useRef<MapRef | null>(null);
+
+  // Start where the user is, unless they are already editing or drawing.
+  const locationError = useCenterOnDevice(
+    mapRef,
+    () => form.id !== null || form.path.length > 0,
+  );
 
   const sites = useQuery({ queryKey: ['sites'], queryFn: () => api<Site[]>('/sites') });
   const effectiveSiteId = siteId ?? sites.data?.[0]?.id ?? null;
@@ -61,13 +88,14 @@ export function RoutesPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['routes'] });
   const onError = (err: unknown) =>
-    setError(err instanceof ApiError ? err.message : 'Error inesperado');
+    setError(err instanceof ApiError ? err.message : 'Ocurrió un error inesperado.');
 
   const save = useMutation({
     mutationFn: (payload: FormState) => {
       const body = {
         name: payload.name,
         expected_duration_min: payload.expected_duration_min,
+        patrol_mode: payload.patrol_mode,
         path: payload.path.length >= 2 ? payload.path : null,
         checkpoints: payload.checkpoints.map((item, index) => ({
           checkpoint_id: item.checkpoint_id,
@@ -121,228 +149,343 @@ export function RoutesPage() {
     });
   };
 
-  const editRoute = (route: RouteItem) =>
+  const editRoute = (route: RouteItem) => {
+    const coords: [number, number][] = [
+      ...(route.path ?? []),
+      ...route.checkpoints.map((c) => [c.lng, c.lat] as [number, number]),
+    ];
+    if (coords.length > 0) {
+      const lngs = coords.map((c) => c[0]);
+      const lats = coords.map((c) => c[1]);
+      mapRef.current?.fitBounds(
+        [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)],
+        ],
+        { padding: 40, maxZoom: 17, duration: 600 },
+      );
+    }
+    // On narrower screens the form sits below the table: bring it into view.
+    document.getElementById('edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setForm({
       id: route.id,
       name: route.name,
       expected_duration_min: route.expected_duration_min,
+      patrol_mode: route.patrol_mode,
       path: route.path ?? [],
       checkpoints: route.checkpoints.map((c) => ({
         checkpoint_id: c.checkpoint_id,
         expected_offset_min: c.expected_offset_min,
       })),
     });
+  };
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Rutas</h1>
-        <select
-          className="rounded border border-grid bg-surface px-3 py-2 text-sm"
-          value={effectiveSiteId ?? ''}
-          onChange={(e) => setSiteId(Number(e.target.value))}
-        >
-          {sites.data?.map((site) => (
-            <option key={site.id} value={site.id}>
-              {site.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <p className="mb-3 text-sm text-critical">{error}</p>}
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="overflow-x-auto rounded-lg border border-grid bg-surface">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-grid text-left text-xs uppercase tracking-wide text-muted">
-                <th className="px-4 py-3">Nombre</th>
-                <th className="px-4 py-3">Duración</th>
-                <th className="px-4 py-3">Checkpoints</th>
-                <th className="px-4 py-3">Activa</th>
-                <th className="px-4 py-3 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {routes.data?.map((route) => (
-                <tr key={route.id} className="border-b border-grid/60 last:border-0">
-                  <td className="px-4 py-2.5">{route.name}</td>
-                  <td className="px-4 py-2.5">{route.expected_duration_min} min</td>
-                  <td className="px-4 py-2.5">{route.checkpoints.length}</td>
-                  <td className="px-4 py-2.5">{route.is_active ? 'Sí' : 'No'}</td>
-                  <td className="space-x-3 px-4 py-2.5 text-right text-xs">
-                    <button className="text-series hover:underline" onClick={() => editRoute(route)}>
-                      Editar
-                    </button>
-                    <button
-                      className="text-ink-2 hover:underline"
-                      onClick={() => toggleActive.mutate(route)}
-                    >
-                      {route.is_active ? 'Desactivar' : 'Activar'}
-                    </button>
-                    <button
-                      className="text-critical hover:underline"
-                      onClick={() => {
-                        if (confirm(`¿Eliminar "${route.name}"?`)) remove.mutate(route.id);
-                      }}
-                    >
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
+      <PageHeader
+        title="Rutas"
+        description="Recorridos esperados de cada ronda: trazado, checkpoints en orden y tiempos previstos."
+        actions={
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-ink-2" htmlFor="site">
+              Instalación
+            </label>
+            <select
+              id="site"
+              className="input w-64"
+              value={effectiveSiteId ?? ''}
+              onChange={(e) => setSiteId(Number(e.target.value))}
+            >
+              {sites.data?.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
               ))}
-              {routes.data?.length === 0 && (
+            </select>
+          </div>
+        }
+      />
+
+      {error && <Alert onClose={() => setError(null)}>{error}</Alert>}
+
+      <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="card">
+          <div className="card-header">
+            <h2 className="card-title">Rutas de la instalación</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted">
-                    Sin rutas en este sitio.
-                  </td>
+                  <th>Nombre</th>
+                  <th>Duración</th>
+                  <th>Modo</th>
+                  <th>Checkpoints</th>
+                  <th>Estado</th>
+                  <th className="text-right">Acciones</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {routes.data?.map((route) => (
+                  <tr
+                    key={route.id}
+                    className={`row-hover ${form.id === route.id ? '[&>td]:bg-primary-soft/60' : ''}`}
+                  >
+                    <td className="font-medium">{route.name}</td>
+                    <td className="whitespace-nowrap tabular-nums">
+                      {route.expected_duration_min} min
+                    </td>
+                    <td className="whitespace-nowrap">{PATROL_MODE_LABELS[route.patrol_mode]}</td>
+                    <td className="tabular-nums">{route.checkpoints.length}</td>
+                    <td>
+                      <ActiveBadge active={route.is_active} />
+                    </td>
+                    <td className="space-x-4 whitespace-nowrap text-right">
+                      <button className="link-action" onClick={() => editRoute(route)}>
+                        Editar
+                      </button>
+                      <button
+                        className="link-action-muted"
+                        onClick={() => toggleActive.mutate(route)}
+                      >
+                        {route.is_active ? 'Desactivar' : 'Activar'}
+                      </button>
+                      <button
+                        className="link-action-danger"
+                        onClick={() =>
+                          confirm({
+                            title: 'Eliminar ruta',
+                            message: `Se eliminará la ruta "${route.name}". Esta acción no se puede deshacer.`,
+                            confirmLabel: 'Eliminar',
+                            danger: true,
+                            onConfirm: () => remove.mutate(route.id),
+                          })
+                        }
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {routes.isLoading && <TableMessage colSpan={6}>Cargando rutas…</TableMessage>}
+                {routes.data?.length === 0 && (
+                  <TableMessage colSpan={6}>
+                    Esta instalación todavía no tiene rutas. Utilice el formulario para crear la
+                    primera.
+                  </TableMessage>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div className="rounded-lg border border-grid bg-surface p-4">
-          <h2 className="mb-3 text-sm font-semibold">
-            {form.id === null ? 'Nueva ruta' : `Editando #${form.id}`}
-          </h2>
-          <div className="mb-3 flex gap-2">
-            <input
-              className="flex-1 rounded border border-grid px-3 py-2 text-sm"
-              placeholder="Nombre de la ruta"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-            <input
-              type="number"
-              className="w-24 rounded border border-grid px-3 py-2 text-sm"
-              title="Duración esperada (min)"
-              min={1}
-              value={form.expected_duration_min}
-              onChange={(e) =>
-                setForm({ ...form, expected_duration_min: Number(e.target.value) })
-              }
-            />
+        <div className="card scroll-mt-20" id="edit-form">
+          <div className="card-header">
+            <h2 className="card-title">
+              {form.id === null ? 'Nueva ruta' : `Editar ruta: ${form.name}`}
+            </h2>
           </div>
-          <p className="mb-2 text-xs text-muted">
-            Haz clic en el mapa para dibujar el recorrido esperado ({form.path.length} puntos).
-          </p>
-          <div className="mb-2 h-72 overflow-hidden rounded border border-grid">
-            <Map
-              initialViewState={DEFAULT_VIEW}
-              mapStyle={OSM_STYLE}
-              onClick={(e) =>
-                setForm((f) => ({ ...f, path: [...f.path, [e.lngLat.lng, e.lngLat.lat]] }))
-              }
-            >
-              {pathFeature && (
-                <Source id="draft-path" type="geojson" data={pathFeature}>
-                  <Layer
-                    id="draft-path-line"
-                    type="line"
-                    paint={{ 'line-color': '#2a78d6', 'line-width': 3 }}
-                  />
-                </Source>
-              )}
-              {checkpoints.data?.map((checkpoint) => (
-                <Marker key={checkpoint.id} longitude={checkpoint.lng} latitude={checkpoint.lat}>
-                  <div
-                    title={checkpoint.name}
-                    className={`h-3.5 w-3.5 rounded-full ring-2 ring-white ${
-                      form.checkpoints.some((c) => c.checkpoint_id === checkpoint.id)
-                        ? 'bg-series'
-                        : 'bg-muted'
-                    }`}
-                  />
-                </Marker>
-              ))}
-            </Map>
-          </div>
-          <div className="mb-3 flex gap-2">
-            <button
-              onClick={() => setForm((f) => ({ ...f, path: f.path.slice(0, -1) }))}
-              disabled={form.path.length === 0}
-              className="rounded border border-grid px-3 py-1.5 text-xs disabled:opacity-50"
-            >
-              Deshacer punto
-            </button>
-            <button
-              onClick={() => setForm((f) => ({ ...f, path: [] }))}
-              disabled={form.path.length === 0}
-              className="rounded border border-grid px-3 py-1.5 text-xs disabled:opacity-50"
-            >
-              Limpiar trazo
-            </button>
-          </div>
+          <div className="card-body">
+            <div className="mb-4 grid gap-4 sm:grid-cols-[1fr_8rem_9rem]">
+              <div>
+                <label className="field-label" htmlFor="route-name">
+                  Nombre
+                </label>
+                <input
+                  id="route-name"
+                  className="input"
+                  placeholder="Ej.: Ronda perimetral"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="route-duration">
+                  Duración (min)
+                </label>
+                <input
+                  id="route-duration"
+                  type="number"
+                  className="input"
+                  min={1}
+                  value={form.expected_duration_min}
+                  onChange={(e) =>
+                    setForm({ ...form, expected_duration_min: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="route-mode">
+                  Modo de patrullaje
+                </label>
+                <select
+                  id="route-mode"
+                  className="input"
+                  title="Define la velocidad máxima tolerada en el análisis"
+                  value={form.patrol_mode}
+                  onChange={(e) => setForm({ ...form, patrol_mode: e.target.value as PatrolMode })}
+                >
+                  {Object.entries(PATROL_MODE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-            Checkpoints de la ruta (en orden de selección)
-          </h3>
-          <ul className="mb-3 max-h-40 overflow-y-auto text-sm">
-            {checkpoints.data?.map((checkpoint) => {
-              const index = form.checkpoints.findIndex(
-                (c) => c.checkpoint_id === checkpoint.id,
-              );
-              const item = index >= 0 ? form.checkpoints[index] : null;
-              return (
-                <li key={checkpoint.id} className="flex items-center gap-2 py-1">
-                  <input
-                    type="checkbox"
-                    checked={item !== null}
-                    onChange={() => toggleCheckpoint(checkpoint.id)}
-                  />
-                  <span className="flex-1">
-                    {item !== null && (
-                      <span className="mr-1 font-semibold text-series">{index + 1}.</span>
-                    )}
-                    {checkpoint.name}
-                  </span>
-                  {item !== null && (
-                    <label className="flex items-center gap-1 text-xs text-muted">
-                      min
-                      <input
-                        type="number"
-                        min={0}
-                        className="w-16 rounded border border-grid px-2 py-1 text-xs"
-                        value={item.expected_offset_min}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            checkpoints: f.checkpoints.map((c) =>
-                              c.checkpoint_id === checkpoint.id
-                                ? { ...c, expected_offset_min: Number(e.target.value) }
-                                : c,
-                            ),
-                          }))
-                        }
-                      />
-                    </label>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-
-          <div className="flex gap-2">
-            <button
-              disabled={!form.name || save.isPending}
-              onClick={() => save.mutate(form)}
-              className="rounded bg-series px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {form.id === null ? 'Crear ruta' : 'Guardar cambios'}
-            </button>
-            {form.id !== null && (
-              <button
-                onClick={() => setForm(EMPTY_FORM)}
-                className="rounded border border-grid px-4 py-2 text-sm"
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <span className="field-label !mb-0">
+                Recorrido esperado{' '}
+                <span className="font-normal text-muted">
+                  ({form.path.length} {form.path.length === 1 ? 'punto' : 'puntos'})
+                </span>
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setForm((f) => ({ ...f, path: f.path.slice(0, -1) }))}
+                  disabled={form.path.length === 0}
+                  className="btn-secondary btn-sm"
+                >
+                  <Icon name="undo" size={14} />
+                  Deshacer punto
+                </button>
+                <button
+                  onClick={() => setForm((f) => ({ ...f, path: [] }))}
+                  disabled={form.path.length === 0}
+                  className="btn-secondary btn-sm"
+                >
+                  Borrar trazado
+                </button>
+              </div>
+            </div>
+            <div className="h-80 overflow-hidden rounded-md border border-grid">
+              <Map
+                ref={mapRef}
+                initialViewState={DEFAULT_VIEW}
+                mapStyle={OSM_STYLE}
+                cursor="crosshair"
+                onClick={(e) =>
+                  setForm((f) => ({ ...f, path: [...f.path, [e.lngLat.lng, e.lngLat.lat]] }))
+                }
               >
-                Cancelar
+                <NavigationControl position="top-right" showCompass={false} />
+                <GeolocateControl position="top-right" />
+                {pathFeature && (
+                  <Source id="draft-path" type="geojson" data={pathFeature}>
+                    <Layer
+                      id="draft-path-line"
+                      type="line"
+                      paint={{ 'line-color': '#2a78d6', 'line-width': 3 }}
+                    />
+                  </Source>
+                )}
+                {checkpoints.data?.map((checkpoint) => {
+                  const order =
+                    form.checkpoints.findIndex((c) => c.checkpoint_id === checkpoint.id) + 1;
+                  return (
+                    <Marker key={checkpoint.id} longitude={checkpoint.lng} latitude={checkpoint.lat}>
+                      <div
+                        title={checkpoint.name}
+                        className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white ${
+                          order > 0 ? 'bg-primary' : 'bg-muted'
+                        }`}
+                      >
+                        {order > 0 ? order : ''}
+                      </div>
+                    </Marker>
+                  );
+                })}
+              </Map>
+            </div>
+            {locationError && <p className="field-hint text-warning-ink">{locationError}</p>}
+            <p className="field-hint">
+              Haga clic en el mapa para agregar cada punto del recorrido, en el orden en que se
+              camina.
+            </p>
+
+            <div className="mb-1.5 mt-5 flex items-baseline justify-between gap-2">
+              <span className="field-label !mb-0">Checkpoints de la ruta</span>
+              <span className="text-xs text-muted">
+                El orden de selección define la secuencia de la ronda
+              </span>
+            </div>
+            <ul className="max-h-56 divide-y divide-grid/70 overflow-y-auto rounded-md border border-grid">
+              {checkpoints.data?.map((checkpoint) => {
+                const index = form.checkpoints.findIndex(
+                  (c) => c.checkpoint_id === checkpoint.id,
+                );
+                const item = index >= 0 ? form.checkpoints[index] : null;
+                return (
+                  <li key={checkpoint.id} className="flex items-center gap-3 px-3 py-2">
+                    <input
+                      id={`route-cp-${checkpoint.id}`}
+                      type="checkbox"
+                      className="h-4 w-4 accent-primary"
+                      checked={item !== null}
+                      onChange={() => toggleCheckpoint(checkpoint.id)}
+                    />
+                    <label htmlFor={`route-cp-${checkpoint.id}`} className="flex flex-1 items-center gap-2 text-sm">
+                      {item !== null && (
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white">
+                          {index + 1}
+                        </span>
+                      )}
+                      {checkpoint.name}
+                    </label>
+                    {item !== null && (
+                      <label className="flex items-center gap-2 text-xs text-ink-2">
+                        Minuto esperado
+                        <input
+                          type="number"
+                          min={0}
+                          className="input w-20 !px-2 !py-1 text-xs"
+                          value={item.expected_offset_min}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              checkpoints: f.checkpoints.map((c) =>
+                                c.checkpoint_id === checkpoint.id
+                                  ? { ...c, expected_offset_min: Number(e.target.value) }
+                                  : c,
+                              ),
+                            }))
+                          }
+                        />
+                      </label>
+                    )}
+                  </li>
+                );
+              })}
+              {checkpoints.data?.length === 0 && (
+                <li className="px-3 py-6 text-center text-sm text-muted">
+                  Primero registre los checkpoints de la instalación.
+                </li>
+              )}
+            </ul>
+            <p className="field-hint">
+              El minuto esperado se cuenta desde el inicio de la ronda y se usa para evaluar los
+              tiempos entre checkpoints.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2 border-t border-grid pt-4">
+              {form.id !== null && (
+                <button onClick={() => setForm(EMPTY_FORM)} className="btn-secondary">
+                  Cancelar
+                </button>
+              )}
+              <button
+                disabled={!form.name || save.isPending}
+                onClick={() => save.mutate(form)}
+                className="btn-primary"
+              >
+                {form.id === null ? 'Crear ruta' : 'Guardar cambios'}
               </button>
-            )}
+            </div>
           </div>
         </div>
       </div>
+      {confirmDialog}
     </div>
   );
 }

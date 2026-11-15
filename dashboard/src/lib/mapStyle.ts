@@ -14,7 +14,7 @@ export const OSM_STYLE: StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 };
 
-export const DEFAULT_VIEW = { longitude: -78.488, latitude: -0.176, zoom: 15 };
+export const DEFAULT_VIEW = { longitude: -78.4833, latitude: -0.184, zoom: 15 };
 
 // Free vector tiles (no token, no limits) — needed for 3D building extrusion,
 // which raster OSM tiles cannot provide. https://openfreemap.org

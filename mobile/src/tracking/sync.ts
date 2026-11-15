@@ -8,6 +8,7 @@ import {
   SYNC_INTERVAL_MS,
 } from '../config';
 import { deleteBuffered, getBuffered, type BufferedPoint } from '../db/local';
+import { isOfflineMode } from '../offline/offlineMode';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let unsubscribeNetInfo: (() => void) | null = null;
@@ -23,6 +24,8 @@ function toPayloadPoint(point: BufferedPoint) {
     accuracy_m: point.accuracy_m,
     speed_mps: point.speed_mps,
     accel_magnitude: point.accel_magnitude,
+    accel_std: point.accel_std,
+    gyro_magnitude: point.gyro_magnitude,
     is_moving: point.is_moving === null ? null : point.is_moving === 1,
   };
 }
@@ -72,7 +75,7 @@ async function tick(): Promise<void> {
 }
 
 export function startSync(): void {
-  if (timer !== null) return;
+  if (timer !== null || isOfflineMode()) return;
   timer = setInterval(() => void tick(), SYNC_INTERVAL_MS);
   unsubscribeNetInfo = NetInfo.addEventListener((state) => {
     // Connectivity came back: retry immediately regardless of backoff.

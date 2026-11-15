@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from geoalchemy2 import Geography, Geometry
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -9,6 +11,7 @@ from app.models import (
     AnomalySeverity,
     AnomalyType,
     Checkpoint,
+    PatrolMode,
     PatrolSession,
     Scan,
     ScanInvalidReason,
@@ -25,6 +28,29 @@ def _fraud_severity(distance_m: float, radius_m: int) -> AnomalySeverity:
     return AnomalySeverity.low
 
 
+def _window_displacement_m(db: Session, session_id: int, start: datetime, end: datetime) -> float:
+    """Length in meters of the GPS track recorded between start and end."""
+    length = db.scalar(
+        select(
+            func.ST_Length(
+                cast(
+                    func.ST_MakeLine(
+                        aggregate_order_by(
+                            cast(TelemetryPoint.location, Geometry()), TelemetryPoint.recorded_at
+                        )
+                    ),
+                    Geography(),
+                )
+            )
+        ).where(
+            TelemetryPoint.session_id == session_id,
+            TelemetryPoint.recorded_at >= start,
+            TelemetryPoint.recorded_at <= end,
+        )
+    )
+    return float(length or 0.0)
+
+
 def _check_prior_inactivity(
     db: Session, session: PatrolSession, scanned_at: datetime
 ) -> dict | None:
@@ -32,6 +58,9 @@ def _check_prior_inactivity(
 
     Returns evidence dict when the guard shows no walking activity, or None when
     movement looks normal or there is no telemetry to judge (deferred analysis).
+
+    On vehicle patrols a smooth ride reads as low acceleration, so the sensors
+    only count as inactivity when the GPS track barely moved as well.
     """
     window_start = scanned_at - timedelta(minutes=settings.inactivity_window_min)
     rows = db.execute(
@@ -57,13 +86,25 @@ def _check_prior_inactivity(
     if not (low_accel or mostly_still):
         return None
 
+    vehicle_evidence: dict = {}
+    if session.route.patrol_mode == PatrolMode.vehicle:
+        displacement_m = _window_displacement_m(db, session.id, window_start, scanned_at)
+        if displacement_m >= settings.inactivity_vehicle_min_displacement_m:
+            return None
+        vehicle_evidence = {
+            "displacement_m": round(displacement_m, 1),
+            "min_displacement_m": settings.inactivity_vehicle_min_displacement_m,
+        }
+
     return {
+        "patrol_mode": session.route.patrol_mode.value,
         "window_min": settings.inactivity_window_min,
         "points_in_window": len(rows),
         "avg_accel_magnitude": round(avg_accel, 3) if avg_accel is not None else None,
         "still_ratio": round(still_ratio, 3) if still_ratio is not None else None,
         "walk_accel_threshold_mps2": settings.walk_accel_threshold_mps2,
         "inactivity_still_ratio": settings.inactivity_still_ratio,
+        **vehicle_evidence,
     }
 
 

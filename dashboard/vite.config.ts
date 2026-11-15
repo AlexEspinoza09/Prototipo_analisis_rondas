@@ -6,5 +6,8 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // File-change events from a Windows bind mount never reach the Docker
+    // container, so Vite must poll or it keeps serving stale modules.
+    watch: { usePolling: true, interval: 300 },
   },
 });

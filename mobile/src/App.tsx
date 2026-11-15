@@ -8,6 +8,7 @@ import type { ScanResult } from './api/types';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { PatrolProvider, usePatrol } from './patrol/PatrolContext';
 import { ActivePatrolScreen } from './screens/ActivePatrolScreen';
+import { DiagnosticsScreen } from './screens/DiagnosticsScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { RoutesScreen } from './screens/RoutesScreen';
@@ -21,6 +22,7 @@ export type RootStackParamList = {
   Scan: undefined;
   ScanResult: { result: ScanResult };
   History: undefined;
+  Diagnostics: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -66,6 +68,11 @@ function Navigator() {
             name="History"
             component={HistoryScreen}
             options={{ title: 'Historial de rondas' }}
+          />
+          <Stack.Screen
+            name="Diagnostics"
+            component={DiagnosticsScreen}
+            options={{ title: 'Datos del teléfono' }}
           />
         </>
       )}

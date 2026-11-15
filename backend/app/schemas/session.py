@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import SessionStatus
+from app.models import PatrolMode, SessionStatus
 
 
 class SessionStartIn(BaseModel):
@@ -27,3 +27,40 @@ class SessionListOut(SessionOut):
     route_name: str
     scans_valid: int
     scans_invalid: int
+
+
+class TimelineCheckpointOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    checkpoint_id: int
+    name: str
+    sequence_order: int
+    expected_offset_min: int
+    visited_at: datetime | None
+    actual_offset_min: float | None
+    scan_status: str
+
+
+class TimelineSegmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_checkpoint_id: int
+    from_name: str
+    to_checkpoint_id: int
+    to_name: str
+    expected_min: float
+    actual_min: float
+    ratio: float | None
+    verdict: str
+
+
+class SessionTimelineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: int
+    patrol_mode: PatrolMode
+    expected_duration_min: int
+    actual_duration_min: float | None
+    out_of_sequence: bool
+    checkpoints: list[TimelineCheckpointOut]
+    segments: list[TimelineSegmentOut]

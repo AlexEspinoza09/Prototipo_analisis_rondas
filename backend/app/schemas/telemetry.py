@@ -8,6 +8,8 @@ class TelemetryPointIn(BaseModel):
     accuracy_m: float = Field(ge=0)
     speed_mps: float | None = Field(default=None, ge=0)
     accel_magnitude: float | None = Field(default=None, ge=0)
+    accel_std: float | None = Field(default=None, ge=0)
+    gyro_magnitude: float | None = Field(default=None, ge=0)
     is_moving: bool | None = None
 
 
@@ -20,3 +22,5 @@ class TelemetryBatchOut(BaseModel):
     received: int
     inserted: int
     duplicates: int
+    # Points recorded before the session started (stale cached fixes)
+    ignored: int = 0

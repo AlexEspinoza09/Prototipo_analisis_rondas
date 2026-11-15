@@ -31,6 +31,7 @@ def _to_out(anomaly: Anomaly, guard_name: str) -> AnomalyOut:
 @router.get("", response_model=list[AnomalyOut])
 def list_anomalies(
     guard_id: int | None = None,
+    session_id: int | None = None,
     anomaly_type: AnomalyType | None = Query(default=None, alias="type"),
     severity: AnomalySeverity | None = None,
     reviewed: bool | None = None,
@@ -50,6 +51,8 @@ def list_anomalies(
     )
     if guard_id is not None:
         query = query.where(Anomaly.guard_id == guard_id)
+    if session_id is not None:
+        query = query.where(Anomaly.session_id == session_id)
     if anomaly_type is not None:
         query = query.where(Anomaly.type == anomaly_type)
     if severity is not None:

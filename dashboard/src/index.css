@@ -2,7 +2,98 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-plane text-ink;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+@layer base {
+  body {
+    @apply bg-plane text-ink antialiased;
+    font-family: Inter, 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', sans-serif;
+    font-size: 14px;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary/40;
+  }
+}
+
+@layer components {
+  /* Surfaces */
+  .card {
+    @apply rounded-lg border border-grid bg-surface shadow-card;
+  }
+  .card-header {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-grid px-5 py-3.5;
+  }
+  .card-title {
+    @apply text-sm font-semibold text-ink;
+  }
+  .card-body {
+    @apply p-5;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border px-3.5 py-2
+      text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn border-primary bg-primary text-white hover:border-primary-dark hover:bg-primary-dark;
+  }
+  .btn-secondary {
+    @apply btn border-grid bg-surface text-ink hover:bg-plane;
+  }
+  .btn-danger {
+    @apply btn border-critical-ink bg-critical-ink text-white hover:opacity-90;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-xs;
+  }
+  .link-action {
+    @apply inline-flex items-center gap-1 rounded text-xs font-medium text-primary hover:text-primary-dark
+      hover:underline disabled:opacity-50;
+  }
+  .link-action-muted {
+    @apply link-action text-ink-2 hover:text-ink;
+  }
+  .link-action-danger {
+    @apply link-action text-critical-ink hover:text-critical-ink;
+  }
+
+  /* Form controls */
+  .field-label {
+    @apply mb-1.5 block text-xs font-medium text-ink-2;
+  }
+  .input {
+    @apply w-full rounded-md border border-grid bg-surface px-3 py-2 text-sm text-ink shadow-card
+      placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25
+      disabled:bg-plane;
+  }
+  .field-hint {
+    @apply mt-1.5 text-xs text-muted;
+  }
+
+  /* Data tables */
+  .data-table {
+    @apply w-full text-left text-sm;
+  }
+  .data-table thead th {
+    @apply whitespace-nowrap border-b border-grid bg-plane/70 px-5 py-2.5 text-xs font-semibold
+      uppercase tracking-wide text-ink-2;
+  }
+  .data-table tbody td {
+    @apply border-b border-grid/70 px-5 py-3 align-middle;
+  }
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .data-table tbody tr.row-hover:hover td {
+    @apply bg-plane/60;
+  }
+  .table-footer {
+    @apply border-t border-grid px-5 py-2.5 text-xs text-muted;
+  }
+}
+
+/* Map controls: align MapLibre's default chrome with the interface */
+.maplibregl-ctrl-group {
+  @apply overflow-hidden rounded-md border border-grid shadow-card;
+  box-shadow: none !important;
 }

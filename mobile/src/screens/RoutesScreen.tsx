@@ -14,6 +14,7 @@ import { api } from '../api/client';
 import type { RouteItem } from '../api/types';
 import type { RootStackParamList } from '../App';
 import { useAuth } from '../auth/AuthContext';
+import { PATROL_MODE_LABELS } from '../lib/labels';
 import { usePatrol } from '../patrol/PatrolContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Routes'>;
@@ -74,7 +75,8 @@ export function RoutesScreen({ navigation }: Props) {
           <View style={styles.card}>
             <Text style={styles.routeName}>{item.name}</Text>
             <Text style={styles.routeMeta}>
-              {item.checkpoints.length} checkpoints · {item.expected_duration_min} min estimados
+              {item.checkpoints.length} checkpoints · {item.expected_duration_min} min estimados ·{' '}
+              {PATROL_MODE_LABELS[item.patrol_mode]}
             </Text>
             <TouchableOpacity
               style={[styles.button, starting && { opacity: 0.6 }]}
@@ -89,6 +91,9 @@ export function RoutesScreen({ navigation }: Props) {
       <View style={styles.footer}>
         <TouchableOpacity onPress={() => navigation.navigate('History')}>
           <Text style={styles.footerLink}>Historial</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Diagnostics')}>
+          <Text style={styles.footerLink}>Datos del teléfono</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => void logout()}>
           <Text style={[styles.footerLink, { color: '#d03b3b' }]}>Cerrar sesión</Text>

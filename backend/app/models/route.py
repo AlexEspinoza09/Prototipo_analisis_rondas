@@ -1,8 +1,15 @@
+import enum
+
 from geoalchemy2 import Geography
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint, text
+from sqlalchemy import Enum, ForeignKey, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+
+class PatrolMode(str, enum.Enum):
+    foot = "foot"
+    vehicle = "vehicle"
 
 
 class Route(Base):
@@ -15,6 +22,12 @@ class Route(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     expected_path = mapped_column(Geography(geometry_type="LINESTRING", srid=4326), nullable=True)
     expected_duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    patrol_mode: Mapped[PatrolMode] = mapped_column(
+        Enum(PatrolMode, name="patrol_mode"),
+        nullable=False,
+        default=PatrolMode.foot,
+        server_default=PatrolMode.foot.value,
+    )
     is_active: Mapped[bool] = mapped_column(
         nullable=False, default=True, server_default=text("true")
     )

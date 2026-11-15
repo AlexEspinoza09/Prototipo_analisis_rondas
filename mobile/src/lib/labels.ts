@@ -1,9 +1,14 @@
-import type { InvalidReason, SessionStatus } from '../api/types';
+import type { InvalidReason, PatrolMode, SessionStatus } from '../api/types';
 
 export const REASON_LABELS: Record<InvalidReason, string> = {
   out_of_range: 'Fuera del rango del checkpoint',
   no_prior_movement: 'Sin movimiento previo al escaneo',
   duplicate: 'Checkpoint ya escaneado en esta ronda',
+};
+
+export const PATROL_MODE_LABELS: Record<PatrolMode, string> = {
+  foot: 'A pie',
+  vehicle: 'En vehículo',
 };
 
 export const STATUS_LABELS: Record<SessionStatus, string> = {

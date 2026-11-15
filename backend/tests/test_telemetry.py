@@ -32,7 +32,7 @@ def test_batch_ingest_inserts_points(db, client):
     response = client.post("/telemetry/batch", json=payload, headers=scenario.headers)
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"received": 4, "inserted": 4, "duplicates": 0}
+    assert response.json() == {"received": 4, "inserted": 4, "duplicates": 0, "ignored": 0}
     count = db.scalar(select(func.count()).select_from(TelemetryPoint))
     assert count == 4
 
@@ -45,9 +45,23 @@ def test_batch_ingest_is_idempotent(db, client):
     second = client.post("/telemetry/batch", json=payload, headers=scenario.headers)
 
     assert first.json()["inserted"] == 4
-    assert second.json() == {"received": 4, "inserted": 0, "duplicates": 4}
+    assert second.json() == {"received": 4, "inserted": 0, "duplicates": 4, "ignored": 0}
     count = db.scalar(select(func.count()).select_from(TelemetryPoint))
     assert count == 4
+
+
+def test_batch_ignores_stale_fix_from_before_session_start(db, client):
+    scenario = create_patrol_scenario(db, client)  # session started 30 min ago
+    payload = _batch_payload(scenario.session.id)
+    stale = dict(payload["points"][0])
+    stale["recorded_at"] = (scenario.session.started_at - timedelta(minutes=7)).isoformat()
+    payload["points"].append(stale)
+
+    response = client.post("/telemetry/batch", json=payload, headers=scenario.headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"received": 5, "inserted": 4, "duplicates": 0, "ignored": 1}
+    assert db.scalar(select(func.count()).select_from(TelemetryPoint)) == 4
 
 
 def test_batch_for_unknown_session_returns_404(db, client):

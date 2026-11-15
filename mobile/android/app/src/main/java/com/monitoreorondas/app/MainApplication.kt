@@ -1,4 +1,4 @@
-package com.protemaxi.rondas
+package com.monitoreorondas.app
 
 import android.app.Application
 import android.content.res.Configuration

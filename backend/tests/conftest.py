@@ -64,7 +64,7 @@ def db(engine: Engine) -> Generator[Session, None, None]:
 def _no_celery_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """API endpoints must not enqueue real Celery tasks during tests."""
     monkeypatch.setattr(
-        "app.api.sessions.analyze_session_route_task",
+        "app.api.sessions.analyze_session_task",
         SimpleNamespace(delay=lambda *args, **kwargs: None),
     )
 

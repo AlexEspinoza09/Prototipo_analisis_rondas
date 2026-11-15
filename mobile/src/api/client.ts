@@ -1,7 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { API_URL } from '../config';
+import { offlineApi } from '../offline/offlineApi';
+import { isOfflineMode } from '../offline/offlineMode';
+import { ApiError } from './errors';
 import type { TokenPair } from './types';
+
+export { ApiError };
 
 const STORAGE_KEY = 'rondas_tokens';
 
@@ -23,15 +28,6 @@ export async function setTokens(tokens: TokenPair | null): Promise<void> {
   }
 }
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 function extractDetail(body: unknown, fallback: string): string {
   if (body && typeof body === 'object' && 'detail' in body) {
     const detail = (body as { detail: unknown }).detail;
@@ -42,6 +38,8 @@ function extractDetail(body: unknown, fallback: string): string {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (isOfflineMode()) return offlineApi<T>(path, init);
+
   const doFetch = (access?: string) =>
     fetch(`${API_URL}${path}`, {
       ...init,

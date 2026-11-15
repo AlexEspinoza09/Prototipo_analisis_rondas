@@ -2,13 +2,40 @@ import { useQuery } from '@tanstack/react-query';
 import type { Feature, FeatureCollection } from 'geojson';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import MapView, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
+import { Link, useSearchParams } from 'react-router-dom';
+import MapView, {
+  Layer,
+  Marker,
+  NavigationControl,
+  Source,
+  type MapRef,
+} from 'react-map-gl/maplibre';
 
 import { api } from '../api/client';
-import type { RouteItem, SessionListItem, SessionScan, TrackFeature } from '../api/types';
+import type {
+  Anomaly,
+  RouteItem,
+  SegmentVerdict,
+  SessionListItem,
+  SessionScan,
+  SessionStatus,
+  SessionTimeline,
+  TimelineScanStatus,
+  TrackFeature,
+} from '../api/types';
+import { Icon } from '../components/Icon';
+import { Badge, PageHeader, Spinner, type Tone } from '../components/ui';
 import { DEFAULT_VIEW, VECTOR_3D_STYLE } from '../lib/mapStyle';
-import { REASON_LABELS, STATUS_LABELS, formatDateTime } from '../lib/labels';
+import {
+  ANOMALY_LABELS,
+  PATROL_MODE_LABELS,
+  REASON_LABELS,
+  SEVERITY_LABELS,
+  SEVERITY_TONE,
+  STATUS_LABELS,
+  VERDICT_LABELS,
+  formatDateTime,
+} from '../lib/labels';
 
 const COLOR_TRACK = '#2a78d6';
 const COLOR_PROGRESS = '#104281'; // blue 650: walked portion of the track
@@ -34,7 +61,42 @@ const STATE_LABEL: Record<CheckpointState, string> = {
   unvisited: 'No visitado',
 };
 
+const VERDICT_TONE: Record<SegmentVerdict, Tone> = {
+  ok: 'good',
+  fast: 'critical',
+  slow: 'warning',
+};
+
+const SCAN_TONE: Record<TimelineScanStatus, Tone> = {
+  valid: 'good',
+  invalid: 'critical',
+  missed: 'neutral',
+};
+
+const SESSION_TONE: Record<SessionStatus, Tone> = {
+  in_progress: 'info',
+  completed: 'good',
+  abandoned: 'critical',
+};
+
+const TIMELINE_STATE_LABEL: Record<CheckpointState | 'missed', string> = {
+  ...STATE_LABEL,
+  missed: 'No visitado',
+};
+
 const EMPTY_FC: FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+function formatMin(value: number | null): string {
+  return value === null ? '—' : value.toFixed(1);
+}
+
+function sessionDuration(session: SessionListItem): string {
+  if (!session.ended_at) return 'En curso';
+  const minutes = Math.round(
+    (new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 60_000,
+  );
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
 
 function lerpAngle(from: number, to: number, k: number): number {
   const delta = ((to - from + 540) % 360) - 180;
@@ -113,6 +175,16 @@ export function MapPage() {
     queryKey: ['route', selected?.route_id],
     queryFn: () => api<RouteItem>(`/routes/${selected?.route_id}`),
     enabled: selected !== null,
+  });
+  const timeline = useQuery({
+    queryKey: ['timeline', sessionId],
+    queryFn: () => api<SessionTimeline>(`/sessions/${sessionId}/timeline`),
+    enabled: sessionId !== null,
+  });
+  const sessionAnomalies = useQuery({
+    queryKey: ['anomalies', 'session', sessionId],
+    queryFn: () => api<Anomaly[]>(`/anomalies?session_id=${sessionId}`),
+    enabled: sessionId !== null,
   });
 
   const coords = track.data?.geometry?.coordinates ?? null;
@@ -298,78 +370,134 @@ export function MapPage() {
     );
   }, [coords, expectedFeature, route.data, started]);
 
-  const buttonClass =
-    'rounded border border-grid bg-surface px-3 py-1.5 text-sm hover:bg-plane disabled:opacity-50';
+  const scanCounts = {
+    valid: scans.data?.filter((scan) => scan.is_valid).length ?? 0,
+    invalid: scans.data?.filter((scan) => !scan.is_valid).length ?? 0,
+  };
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">Mapa de rondas</h1>
-        <select
-          className="min-w-72 rounded border border-grid bg-surface px-3 py-2 text-sm"
-          value={sessionId ?? ''}
-          onChange={(e) => setSessionId(e.target.value ? Number(e.target.value) : null)}
-        >
-          <option value="">Selecciona una sesión…</option>
-          {sessions.data?.map((s) => (
-            <option key={s.id} value={s.id}>
-              #{s.id} · {s.guard_name} · {s.route_name} · {formatDateTime(s.started_at)} ·{' '}
-              {STATUS_LABELS[s.status]}
-            </option>
-          ))}
-        </select>
-        {sessions.isLoading && <span className="text-sm text-muted">Cargando sesiones…</span>}
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Mapa de rondas"
+        description="Trayectoria registrada frente a la ruta esperada, con el resultado de cada punto de control."
+      />
 
-        <div className="ml-auto flex items-center gap-2">
-          <button className={buttonClass} onClick={toggle3d} aria-pressed={is3d}>
-            {is3d ? 'Vista 2D' : 'Vista 3D'}
-          </button>
-          {!started || !playing ? (
-            <button
-              className={buttonClass}
-              disabled={!canPlay}
-              title={canPlay ? 'Reproducir el recorrido' : 'Sesión sin trayectoria suficiente'}
-              onClick={started ? resumePlayback : startPlayback}
+      <div className="card -mt-5">
+        <div className="flex flex-wrap items-end gap-4 px-5 py-4">
+          <div className="min-w-64 flex-1">
+            <label className="field-label" htmlFor="session">
+              Ronda
+            </label>
+            <select
+              id="session"
+              className="input"
+              value={sessionId ?? ''}
+              onChange={(e) => setSessionId(e.target.value ? Number(e.target.value) : null)}
             >
-              ▶ {started ? 'Continuar' : 'Reproducir ronda'}
-            </button>
-          ) : (
-            <button className={buttonClass} onClick={pausePlayback}>
-              ⏸ Pausar
-            </button>
-          )}
-          {started && (
-            <button className={buttonClass} onClick={stopPlayback}>
-              ■ Detener
-            </button>
-          )}
-          <select
-            className="rounded border border-grid bg-surface px-2 py-1.5 text-sm"
-            value={speed}
-            onChange={(e) => changeSpeed(Number(e.target.value))}
-            title="Velocidad de reproducción"
-          >
-            {SPEED_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                x{option}
+              <option value="">
+                {sessions.isLoading ? 'Cargando rondas…' : 'Seleccione una ronda…'}
               </option>
-            ))}
-          </select>
-          {clock && (
-            <span className="text-sm tabular-nums text-ink-2" title="Hora simulada de la ronda">
-              🕐 {clock}
-            </span>
-          )}
+              {sessions.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  N.º {s.id} · {s.guard_name} · {s.route_name} · {formatDateTime(s.started_at)} ·{' '}
+                  {STATUS_LABELS[s.status]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {clock && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-md bg-plane px-2.5 py-2 text-sm tabular-nums text-ink-2"
+                title="Hora de la ronda en la reproducción"
+              >
+                <Icon name="clock" size={16} />
+                {clock}
+              </span>
+            )}
+            {!started || !playing ? (
+              <button
+                className="btn-primary"
+                disabled={!canPlay}
+                title={
+                  canPlay
+                    ? 'Reproducir el recorrido'
+                    : 'La ronda seleccionada no tiene trayectoria suficiente'
+                }
+                onClick={started ? resumePlayback : startPlayback}
+              >
+                <Icon name="play" size={16} />
+                {started ? 'Continuar' : 'Reproducir recorrido'}
+              </button>
+            ) : (
+              <button className="btn-primary" onClick={pausePlayback}>
+                <Icon name="pause" size={16} />
+                Pausar
+              </button>
+            )}
+            {started && (
+              <button className="btn-secondary" onClick={stopPlayback}>
+                <Icon name="stop" size={16} />
+                Detener
+              </button>
+            )}
+            <select
+              className="input w-24"
+              value={speed}
+              onChange={(e) => changeSpeed(Number(e.target.value))}
+              title="Velocidad de reproducción"
+              aria-label="Velocidad de reproducción"
+            >
+              {SPEED_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  × {option}
+                </option>
+              ))}
+            </select>
+            <button className="btn-secondary" onClick={toggle3d} aria-pressed={is3d}>
+              <Icon name="cube" size={16} />
+              {is3d ? 'Vista 2D' : 'Vista 3D'}
+            </button>
+          </div>
         </div>
+
+        {selected && (
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-grid bg-plane/50 px-5 py-3.5 sm:grid-cols-3 xl:grid-cols-6">
+            {(
+              [
+                ['Guardia', selected.guard_name],
+                ['Ruta', selected.route_name],
+                ['Inicio', formatDateTime(selected.started_at)],
+                ['Duración', sessionDuration(selected)],
+                ['Puntos GPS', String(track.data?.properties.point_count ?? '—')],
+              ] as const
+            ).map(([term, value]) => (
+              <div key={term} className="min-w-0">
+                <dt className="text-xs text-muted">{term}</dt>
+                <dd className="truncate text-sm font-medium" title={value}>
+                  {value}
+                </dd>
+              </div>
+            ))}
+            <div>
+              <dt className="text-xs text-muted">Estado</dt>
+              <dd className="mt-0.5">
+                <Badge tone={SESSION_TONE[selected.status]}>{STATUS_LABELS[selected.status]}</Badge>
+              </dd>
+            </div>
+          </dl>
+        )}
       </div>
 
-      <div className="relative min-h-[480px] flex-1 overflow-hidden rounded-lg border border-grid">
+      <div className="card relative h-[540px] overflow-hidden">
         <MapView
           ref={mapRef}
           initialViewState={DEFAULT_VIEW}
           mapStyle={VECTOR_3D_STYLE}
           onLoad={(evt) => setup3dBuildings(evt.target)}
         >
+          <NavigationControl position="top-right" />
           {expectedFeature && (
             <Source id="expected" type="geojson" data={expectedFeature}>
               <Layer
@@ -426,12 +554,25 @@ export function MapPage() {
             );
           })}
         </MapView>
-        <div className="absolute bottom-3 left-3 rounded border border-grid bg-surface/95 p-3 text-xs">
-          <div className="mb-1 flex items-center gap-2">
+
+        {!selected && (
+          <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
+            <div className="flex items-center gap-2 rounded-md border border-grid bg-surface px-4 py-2.5 text-sm text-ink-2 shadow-pop">
+              <Icon name="info" size={16} className="text-primary" />
+              Seleccione una ronda para visualizar su recorrido.
+            </div>
+          </div>
+        )}
+
+        <div className="absolute bottom-3 left-3 rounded-md border border-grid bg-surface/95 px-3.5 py-3 text-xs text-ink-2 shadow-card">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            Simbología
+          </div>
+          <div className="mb-1.5 flex items-center gap-2">
             <span className="inline-block h-0.5 w-6" style={{ backgroundColor: COLOR_TRACK }} />
             Trayectoria real
           </div>
-          <div className="mb-1 flex items-center gap-2">
+          <div className="mb-1.5 flex items-center gap-2">
             <span
               className="inline-block h-0.5 w-6 border-t-2 border-dashed"
               style={{ borderColor: COLOR_EXPECTED }}
@@ -439,7 +580,7 @@ export function MapPage() {
             Ruta esperada
           </div>
           {started && (
-            <div className="mb-1 flex items-center gap-2">
+            <div className="mb-1.5 flex items-center gap-2">
               <span
                 className="inline-block h-1 w-6 rounded"
                 style={{ backgroundColor: COLOR_PROGRESS }}
@@ -448,7 +589,7 @@ export function MapPage() {
             </div>
           )}
           {(['valid', 'invalid', 'unvisited'] as const).map((state) => (
-            <div key={state} className="mb-1 flex items-center gap-2 last:mb-0">
+            <div key={state} className="mb-1.5 flex items-center gap-2 last:mb-0">
               <span
                 className="inline-block h-3 w-3 rounded-full"
                 style={{ backgroundColor: STATE_COLOR[state] }}
@@ -460,30 +601,159 @@ export function MapPage() {
       </div>
 
       {selected && (
-        <div className="rounded-lg border border-grid bg-surface p-4">
-          <h2 className="mb-2 text-sm font-semibold">
-            Escaneos de la sesión #{selected.id} ({track.data?.properties.point_count ?? 0} puntos
-            GPS)
-          </h2>
-          {scans.data?.length ? (
-            <ul className="grid gap-1 text-sm md:grid-cols-2">
-              {scans.data.map((scan) => (
-                <li key={scan.id} className="flex items-center gap-2">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: scan.is_valid ? COLOR_VALID : COLOR_INVALID }}
-                  />
-                  <span className="text-ink-2">
-                    {scan.checkpoint_name} · {formatDateTime(scan.scanned_at)} ·{' '}
-                    {scan.distance_to_checkpoint_m} m
-                    {scan.invalid_reason ? ` · ${REASON_LABELS[scan.invalid_reason]}` : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted">Sin escaneos registrados.</p>
-          )}
+        <div className="grid items-start gap-5 xl:grid-cols-2">
+          <div className="card">
+            <div className="card-header">
+              <div>
+                <h2 className="card-title">Tiempos de la ronda</h2>
+                {timeline.data && (
+                  <p className="mt-0.5 text-xs text-muted">
+                    {PATROL_MODE_LABELS[timeline.data.patrol_mode]} · duración real de{' '}
+                    {formatMin(timeline.data.actual_duration_min)} min frente a{' '}
+                    {timeline.data.expected_duration_min} min previstos
+                  </p>
+                )}
+              </div>
+              {timeline.data?.out_of_sequence && <Badge tone="warning">Fuera de orden</Badge>}
+            </div>
+            {timeline.data ? (
+              <>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Checkpoint</th>
+                      <th className="text-right">Previsto (min)</th>
+                      <th className="text-right">Real (min)</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {timeline.data.checkpoints.map((cp) => (
+                      <tr key={cp.checkpoint_id}>
+                        <td>
+                          <span className="mr-2 tabular-nums text-muted">{cp.sequence_order}.</span>
+                          <span className="font-medium">{cp.name}</span>
+                        </td>
+                        <td className="text-right tabular-nums">{cp.expected_offset_min}</td>
+                        <td className="text-right tabular-nums">
+                          {formatMin(cp.actual_offset_min)}
+                        </td>
+                        <td>
+                          <Badge tone={SCAN_TONE[cp.scan_status]}>
+                            {TIMELINE_STATE_LABEL[cp.scan_status]}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="border-t border-grid px-5 py-4">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-2">
+                    Tramos entre checkpoints
+                  </h3>
+                  {timeline.data.segments.length ? (
+                    <ul className="divide-y divide-grid/70">
+                      {timeline.data.segments.map((segment) => (
+                        <li
+                          key={`${segment.from_checkpoint_id}-${segment.to_checkpoint_id}`}
+                          className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                        >
+                          <span>
+                            {segment.from_name} <span className="text-muted">→</span>{' '}
+                            {segment.to_name}
+                          </span>
+                          <span className="flex items-center gap-3">
+                            <span className="tabular-nums text-ink-2">
+                              {formatMin(segment.actual_min)} de {formatMin(segment.expected_min)} min
+                            </span>
+                            <Badge tone={VERDICT_TONE[segment.verdict]}>
+                              {VERDICT_LABELS[segment.verdict]}
+                            </Badge>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted">
+                      No hay tramos medibles: faltan checkpoints o el orden no es el previsto.
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="card-body">
+                <Spinner />
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-5">
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">Anomalías de la ronda</h2>
+                {!!sessionAnomalies.data?.length && (
+                  <Link to="/anomalias" className="link-action">
+                    Ver evidencia
+                  </Link>
+                )}
+              </div>
+              {sessionAnomalies.data?.length ? (
+                <ul className="divide-y divide-grid/70">
+                  {sessionAnomalies.data.map((anomaly) => (
+                    <li
+                      key={anomaly.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5 text-sm"
+                    >
+                      <span className="font-medium">{ANOMALY_LABELS[anomaly.type]}</span>
+                      <span className="flex items-center gap-3 text-xs text-muted">
+                        {formatDateTime(anomaly.detected_at)}
+                        <Badge tone={SEVERITY_TONE[anomaly.severity]}>
+                          {SEVERITY_LABELS[anomaly.severity]}
+                        </Badge>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="card-body text-sm text-muted">
+                  {selected.status === 'in_progress'
+                    ? 'El análisis completo se ejecuta al finalizar la ronda.'
+                    : 'No se detectaron anomalías en esta ronda.'}
+                </p>
+              )}
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">Escaneos de códigos QR</h2>
+                <span className="text-xs text-muted">
+                  {scanCounts.valid} válidos · {scanCounts.invalid} inválidos
+                </span>
+              </div>
+              {scans.data?.length ? (
+                <ul className="divide-y divide-grid/70">
+                  {scans.data.map((scan) => (
+                    <li
+                      key={scan.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5 text-sm"
+                    >
+                      <span>
+                        <span className="font-medium">{scan.checkpoint_name}</span>
+                        <span className="ml-2 text-xs text-muted">
+                          {formatDateTime(scan.scanned_at)} · a {scan.distance_to_checkpoint_m} m
+                        </span>
+                      </span>
+                      <Badge tone={scan.is_valid ? 'good' : 'critical'}>
+                        {scan.invalid_reason ? REASON_LABELS[scan.invalid_reason] : 'Válido'}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="card-body text-sm text-muted">Sin escaneos registrados.</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

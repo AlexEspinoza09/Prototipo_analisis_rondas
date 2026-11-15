@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import type { RootStackParamList } from '../App';
-import { bufferedCount } from '../db/local';
+import { bufferedCount, sessionPointCount } from '../db/local';
 import { haversineMeters } from '../lib/geo';
+import { isOfflineMode } from '../offline/offlineMode';
 import { usePatrol } from '../patrol/PatrolContext';
 import { readLastFix, type LastFix } from '../tracking/locationTask';
 
@@ -27,13 +28,17 @@ const OSM_STYLE = JSON.stringify({
 export function ActivePatrolScreen({ navigation }: Props) {
   const { patrol, endPatrol } = usePatrol();
   const [fix, setFix] = useState<LastFix | null>(readLastFix());
-  const [pending, setPending] = useState(bufferedCount());
+  const offline = isOfflineMode();
+  // Offline test sessions never sync: show what is stored instead of pending.
+  const countPoints = () =>
+    offline && patrol ? sessionPointCount(patrol.sessionId) : bufferedCount();
+  const [pending, setPending] = useState(countPoints());
   const [ending, setEnding] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setFix(readLastFix());
-      setPending(bufferedCount());
+      setPending(countPoints());
     }, 5000);
     return () => clearInterval(timer);
   }, []);
@@ -54,7 +59,7 @@ export function ActivePatrolScreen({ navigation }: Props) {
     ? [fix.lng, fix.lat]
     : nextCheckpoint
       ? [nextCheckpoint.lng, nextCheckpoint.lat]
-      : [-78.488, -0.176];
+      : [-78.4833, -0.184];
 
   const onEnd = () => {
     Alert.alert('Finalizar ronda', '¿Seguro que quieres finalizar la ronda?', [
@@ -141,12 +146,15 @@ export function ActivePatrolScreen({ navigation }: Props) {
         )}
         <Text style={styles.meta}>
           {patrol.scannedCheckpointIds.length}/{patrol.route.checkpoints.length} checkpoints ·{' '}
-          {pending} puntos por sincronizar
+          {pending} {offline ? 'puntos guardados en el teléfono' : 'puntos por sincronizar'}
           {fix ? ` · GPS ±${Math.round(fix.accuracy_m)} m` : ' · Esperando GPS…'}
         </Text>
 
         <TouchableOpacity style={styles.scanButton} onPress={() => navigation.navigate('Scan')}>
           <Text style={styles.scanButtonText}>Escanear QR</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Diagnostics')}>
+          <Text style={styles.diagLink}>Ver datos del teléfono</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.endButton, ending && { opacity: 0.6 }]}
@@ -190,4 +198,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   endButtonText: { color: '#d03b3b', fontWeight: '600' },
+  diagLink: { color: '#2a78d6', fontWeight: '600', textAlign: 'center', paddingVertical: 8 },
 });

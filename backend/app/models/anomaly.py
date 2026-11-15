@@ -15,6 +15,18 @@ class AnomalyType(str, enum.Enum):
     impossible_speed = "impossible_speed"
     inactivity = "inactivity"
     performance_decline = "performance_decline"
+    # Rule 5: checkpoint timing and order
+    segment_too_fast = "segment_too_fast"
+    segment_too_slow = "segment_too_slow"
+    out_of_sequence = "out_of_sequence"
+    missed_checkpoint = "missed_checkpoint"
+    round_too_short = "round_too_short"
+    round_too_long = "round_too_long"
+    # Rule 6: sensor coherence
+    sensor_mismatch = "sensor_mismatch"
+    # Rule 7: GPS signal quality
+    telemetry_gap = "telemetry_gap"
+    gps_jump = "gps_jump"
 
 
 class AnomalySeverity(str, enum.Enum):

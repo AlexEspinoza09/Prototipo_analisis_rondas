@@ -73,6 +73,7 @@ def _to_out(route: Route, path_geojson: str | None, checkpoints: list[RouteCheck
         site_id=route.site_id,
         name=route.name,
         expected_duration_min=route.expected_duration_min,
+        patrol_mode=route.patrol_mode,
         is_active=route.is_active,
         path=path,
         checkpoints=checkpoints,
@@ -138,6 +139,7 @@ def create_route(
         site_id=payload.site_id,
         name=payload.name,
         expected_duration_min=payload.expected_duration_min,
+        patrol_mode=payload.patrol_mode,
         expected_path=_path_to_ewkt(payload.path) if payload.path else None,
     )
     db.add(route)
@@ -161,6 +163,8 @@ def update_route(
         route.name = payload.name
     if payload.expected_duration_min is not None:
         route.expected_duration_min = payload.expected_duration_min
+    if payload.patrol_mode is not None:
+        route.patrol_mode = payload.patrol_mode
     if payload.is_active is not None:
         route.is_active = payload.is_active
     if "path" in payload.model_fields_set:

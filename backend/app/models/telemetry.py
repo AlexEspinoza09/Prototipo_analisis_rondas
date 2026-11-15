@@ -33,4 +33,8 @@ class TelemetryPoint(Base):
     accuracy_m: Mapped[float] = mapped_column(Float, nullable=False)
     speed_mps: Mapped[float | None] = mapped_column(Float)
     accel_magnitude: Mapped[float | None] = mapped_column(Float)
+    # Std. deviation of the acceleration magnitude in the sensor window (m/s^2)
+    accel_std: Mapped[float | None] = mapped_column(Float)
+    # Mean rotation rate in the sensor window (rad/s)
+    gyro_magnitude: Mapped[float | None] = mapped_column(Float)
     is_moving: Mapped[bool | None] = mapped_column()

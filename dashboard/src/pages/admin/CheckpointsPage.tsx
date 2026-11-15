@@ -1,11 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import QRCode from 'qrcode';
-import { useEffect, useState } from 'react';
-import Map, { Marker } from 'react-map-gl/maplibre';
+import { useEffect, useRef, useState } from 'react';
+import Map, { GeolocateControl, Marker, NavigationControl, type MapRef } from 'react-map-gl/maplibre';
 
 import { api, ApiError } from '../../api/client';
 import type { Checkpoint, Site } from '../../api/types';
+import { Icon } from '../../components/Icon';
+import {
+  ActiveBadge,
+  Alert,
+  Modal,
+  PageHeader,
+  TableMessage,
+  useConfirm,
+} from '../../components/ui';
 import { DEFAULT_VIEW, OSM_STYLE } from '../../lib/mapStyle';
+import { useCenterOnDevice } from '../../lib/useCenterOnDevice';
 
 interface FormState {
   id: number | null;
@@ -41,32 +51,35 @@ function QrModal({ checkpoint, onClose }: { checkpoint: Checkpoint; onClose: () 
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40"
-      onClick={onClose}
-    >
-      <div
-        className="flex flex-col items-center rounded-lg bg-surface p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-2 font-semibold">{checkpoint.name}</h2>
-        {dataUrl && <img src={dataUrl} alt="Código QR" />}
-        <p className="mb-4 mt-2 max-w-72 break-all text-center text-xs text-muted">
-          {checkpoint.qr_code}
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={print}
-            className="rounded bg-series px-4 py-2 text-sm text-white hover:opacity-90"
-          >
-            Imprimir
-          </button>
-          <button onClick={onClose} className="rounded border border-grid px-4 py-2 text-sm">
+    <Modal
+      title={`Código QR — ${checkpoint.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} className="btn-secondary">
             Cerrar
           </button>
-        </div>
+          <button onClick={print} disabled={!dataUrl} className="btn-primary">
+            <Icon name="printer" size={16} />
+            Imprimir
+          </button>
+        </>
+      }
+    >
+      <div className="flex flex-col items-center">
+        {dataUrl ? (
+          <img src={dataUrl} alt={`Código QR de ${checkpoint.name}`} className="rounded border border-grid" />
+        ) : (
+          <div className="h-[280px] w-[280px] animate-pulse rounded bg-plane" />
+        )}
+        <p className="mt-3 break-all text-center font-mono text-xs text-muted">
+          {checkpoint.qr_code}
+        </p>
+        <p className="mt-2 text-center text-xs text-ink-2">
+          Imprima el código y colóquelo en el punto de control.
+        </p>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -76,6 +89,11 @@ export function CheckpointsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [qrCheckpoint, setQrCheckpoint] = useState<Checkpoint | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+  const mapRef = useRef<MapRef | null>(null);
+
+  // Start where the user is, unless they already placed or are editing one.
+  const locationError = useCenterOnDevice(mapRef, () => form.id !== null || form.lat !== null);
 
   const sites = useQuery({ queryKey: ['sites'], queryFn: () => api<Site[]>('/sites') });
   const effectiveSiteId = siteId ?? sites.data?.[0]?.id ?? null;
@@ -88,7 +106,7 @@ export function CheckpointsPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['checkpoints'] });
   const onError = (err: unknown) =>
-    setError(err instanceof ApiError ? err.message : 'Error inesperado');
+    setError(err instanceof ApiError ? err.message : 'Ocurrió un error inesperado.');
 
   const save = useMutation({
     mutationFn: (payload: FormState) => {
@@ -109,7 +127,7 @@ export function CheckpointsPage() {
           });
     },
     onSuccess: () => {
-      invalidate();
+      void invalidate();
       setForm(EMPTY_FORM);
       setError(null);
     },
@@ -132,172 +150,219 @@ export function CheckpointsPage() {
     onError,
   });
 
+  const edit = (checkpoint: Checkpoint) => {
+    mapRef.current?.flyTo({ center: [checkpoint.lng, checkpoint.lat], zoom: 17, duration: 600 });
+    // On narrower screens the form sits below the table: bring it into view.
+    document.getElementById('edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setForm({
+      id: checkpoint.id,
+      name: checkpoint.name,
+      radius_m: checkpoint.radius_m,
+      lat: checkpoint.lat,
+      lng: checkpoint.lng,
+    });
+  };
+
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Checkpoints</h1>
-        <select
-          className="rounded border border-grid bg-surface px-3 py-2 text-sm"
-          value={effectiveSiteId ?? ''}
-          onChange={(e) => setSiteId(Number(e.target.value))}
-        >
-          {sites.data?.map((site) => (
-            <option key={site.id} value={site.id}>
-              {site.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <p className="mb-3 text-sm text-critical">{error}</p>}
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="overflow-x-auto rounded-lg border border-grid bg-surface">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-grid text-left text-xs uppercase tracking-wide text-muted">
-                <th className="px-4 py-3">Nombre</th>
-                <th className="px-4 py-3">Radio</th>
-                <th className="px-4 py-3">Activo</th>
-                <th className="px-4 py-3 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {checkpoints.data?.map((checkpoint) => (
-                <tr key={checkpoint.id} className="border-b border-grid/60 last:border-0">
-                  <td className="px-4 py-2.5">{checkpoint.name}</td>
-                  <td className="px-4 py-2.5">{checkpoint.radius_m} m</td>
-                  <td className="px-4 py-2.5">{checkpoint.is_active ? 'Sí' : 'No'}</td>
-                  <td className="space-x-3 px-4 py-2.5 text-right text-xs">
-                    <button
-                      className="text-series hover:underline"
-                      onClick={() => setQrCheckpoint(checkpoint)}
-                    >
-                      QR
-                    </button>
-                    <button
-                      className="text-series hover:underline"
-                      onClick={() =>
-                        setForm({
-                          id: checkpoint.id,
-                          name: checkpoint.name,
-                          radius_m: checkpoint.radius_m,
-                          lat: checkpoint.lat,
-                          lng: checkpoint.lng,
-                        })
-                      }
-                    >
-                      Editar
-                    </button>
-                    <button
-                      className="text-ink-2 hover:underline"
-                      onClick={() => toggleActive.mutate(checkpoint)}
-                    >
-                      {checkpoint.is_active ? 'Desactivar' : 'Activar'}
-                    </button>
-                    <button
-                      className="text-critical hover:underline"
-                      onClick={() => {
-                        if (confirm(`¿Eliminar "${checkpoint.name}"?`)) {
-                          remove.mutate(checkpoint.id);
-                        }
-                      }}
-                    >
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
+      <PageHeader
+        title="Checkpoints"
+        description="Puntos de control físicos de cada instalación. Cada uno tiene un código QR y un radio de validación."
+        actions={
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-ink-2" htmlFor="site">
+              Instalación
+            </label>
+            <select
+              id="site"
+              className="input w-64"
+              value={effectiveSiteId ?? ''}
+              onChange={(e) => setSiteId(Number(e.target.value))}
+            >
+              {sites.data?.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
               ))}
-              {checkpoints.data?.length === 0 && (
+            </select>
+          </div>
+        }
+      />
+
+      {error && <Alert onClose={() => setError(null)}>{error}</Alert>}
+
+      <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="card">
+          <div className="card-header">
+            <h2 className="card-title">Checkpoints de la instalación</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-muted">
-                    Sin checkpoints en este sitio.
-                  </td>
+                  <th>Nombre</th>
+                  <th>Radio</th>
+                  <th>Estado</th>
+                  <th className="text-right">Acciones</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {checkpoints.data?.map((checkpoint) => (
+                  <tr
+                    key={checkpoint.id}
+                    className={`row-hover ${form.id === checkpoint.id ? '[&>td]:bg-primary-soft/60' : ''}`}
+                  >
+                    <td className="font-medium">{checkpoint.name}</td>
+                    <td className="tabular-nums">{checkpoint.radius_m} m</td>
+                    <td>
+                      <ActiveBadge active={checkpoint.is_active} />
+                    </td>
+                    <td className="space-x-4 whitespace-nowrap text-right">
+                      <button className="link-action" onClick={() => setQrCheckpoint(checkpoint)}>
+                        <Icon name="qr" size={14} />
+                        Código QR
+                      </button>
+                      <button className="link-action" onClick={() => edit(checkpoint)}>
+                        Editar
+                      </button>
+                      <button
+                        className="link-action-muted"
+                        onClick={() => toggleActive.mutate(checkpoint)}
+                      >
+                        {checkpoint.is_active ? 'Desactivar' : 'Activar'}
+                      </button>
+                      <button
+                        className="link-action-danger"
+                        onClick={() =>
+                          confirm({
+                            title: 'Eliminar checkpoint',
+                            message: `Se eliminará el checkpoint "${checkpoint.name}". Esta acción no se puede deshacer.`,
+                            confirmLabel: 'Eliminar',
+                            danger: true,
+                            onConfirm: () => remove.mutate(checkpoint.id),
+                          })
+                        }
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {checkpoints.isLoading && (
+                  <TableMessage colSpan={4}>Cargando checkpoints…</TableMessage>
+                )}
+                {checkpoints.data?.length === 0 && (
+                  <TableMessage colSpan={4}>
+                    Esta instalación todavía no tiene checkpoints. Utilice el formulario para crear
+                    el primero.
+                  </TableMessage>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div className="rounded-lg border border-grid bg-surface p-4">
-          <h2 className="mb-3 text-sm font-semibold">
-            {form.id === null ? 'Nuevo checkpoint' : `Editando #${form.id}`}
-          </h2>
-          <div className="mb-3 flex gap-2">
-            <input
-              className="flex-1 rounded border border-grid px-3 py-2 text-sm"
-              placeholder="Nombre del checkpoint"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-            <input
-              type="number"
-              className="w-24 rounded border border-grid px-3 py-2 text-sm"
-              title="Radio de validación (m)"
-              min={5}
-              value={form.radius_m}
-              onChange={(e) => setForm({ ...form, radius_m: Number(e.target.value) })}
-            />
+        <div className="card scroll-mt-20" id="edit-form">
+          <div className="card-header">
+            <h2 className="card-title">
+              {form.id === null ? 'Nuevo checkpoint' : `Editar checkpoint: ${form.name}`}
+            </h2>
           </div>
-          <p className="mb-2 text-xs text-muted">
-            Haz clic en el mapa para ubicar el checkpoint.
-            {form.lat !== null && form.lng !== null && (
-              <>
-                {' '}
-                Posición: {form.lat.toFixed(6)}, {form.lng.toFixed(6)}
-              </>
-            )}
-          </p>
-          <div className="mb-3 h-72 overflow-hidden rounded border border-grid">
-            <Map
-              initialViewState={DEFAULT_VIEW}
-              mapStyle={OSM_STYLE}
-              onClick={(e) =>
-                setForm((f) => ({ ...f, lat: e.lngLat.lat, lng: e.lngLat.lng }))
-              }
-            >
-              {form.lat !== null && form.lng !== null && (
-                <Marker longitude={form.lng} latitude={form.lat}>
-                  <div className="h-4 w-4 rounded-full bg-series ring-2 ring-white" />
-                </Marker>
-              )}
-              {checkpoints.data?.map((checkpoint) =>
-                checkpoint.id !== form.id ? (
-                  <Marker
-                    key={checkpoint.id}
-                    longitude={checkpoint.lng}
-                    latitude={checkpoint.lat}
-                  >
-                    <div
-                      title={checkpoint.name}
-                      className="h-3 w-3 rounded-full bg-muted ring-2 ring-white"
-                    />
-                  </Marker>
-                ) : null,
-              )}
-            </Map>
-          </div>
-          <div className="flex gap-2">
-            <button
-              disabled={!form.name || form.lat === null || save.isPending}
-              onClick={() => save.mutate(form)}
-              className="rounded bg-series px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {form.id === null ? 'Crear' : 'Guardar cambios'}
-            </button>
-            {form.id !== null && (
-              <button
-                onClick={() => setForm(EMPTY_FORM)}
-                className="rounded border border-grid px-4 py-2 text-sm"
+          <div className="card-body">
+            <div className="mb-4 grid gap-4 sm:grid-cols-[1fr_10rem]">
+              <div>
+                <label className="field-label" htmlFor="cp-name">
+                  Nombre
+                </label>
+                <input
+                  id="cp-name"
+                  className="input"
+                  placeholder="Ej.: Garita principal"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="cp-radius">
+                  Radio de validación (m)
+                </label>
+                <input
+                  id="cp-radius"
+                  type="number"
+                  className="input"
+                  min={5}
+                  value={form.radius_m}
+                  onChange={(e) => setForm({ ...form, radius_m: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+
+            <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+              <span className="field-label !mb-0">Ubicación</span>
+              <span className="text-xs tabular-nums text-muted">
+                {form.lat !== null && form.lng !== null
+                  ? `${form.lat.toFixed(6)}, ${form.lng.toFixed(6)}`
+                  : 'Haga clic en el mapa para ubicar el checkpoint'}
+              </span>
+            </div>
+            <div className="h-80 overflow-hidden rounded-md border border-grid">
+              <Map
+                ref={mapRef}
+                initialViewState={DEFAULT_VIEW}
+                mapStyle={OSM_STYLE}
+                cursor="crosshair"
+                onClick={(e) =>
+                  setForm((f) => ({ ...f, lat: e.lngLat.lat, lng: e.lngLat.lng }))
+                }
               >
-                Cancelar
+                <NavigationControl position="top-right" showCompass={false} />
+                <GeolocateControl position="top-right" />
+                {form.lat !== null && form.lng !== null && (
+                  <Marker longitude={form.lng} latitude={form.lat}>
+                    <div className="h-4 w-4 rounded-full bg-primary ring-2 ring-white" />
+                  </Marker>
+                )}
+                {checkpoints.data?.map((checkpoint) =>
+                  checkpoint.id !== form.id ? (
+                    <Marker
+                      key={checkpoint.id}
+                      longitude={checkpoint.lng}
+                      latitude={checkpoint.lat}
+                    >
+                      <div
+                        title={checkpoint.name}
+                        className="h-3 w-3 rounded-full bg-muted ring-2 ring-white"
+                      />
+                    </Marker>
+                  ) : null,
+                )}
+              </Map>
+            </div>
+            {locationError && <p className="field-hint text-warning-ink">{locationError}</p>}
+            <p className="field-hint">
+              El escaneo se considera válido cuando el guardia está dentro del radio indicado.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2 border-t border-grid pt-4">
+              {form.id !== null && (
+                <button onClick={() => setForm(EMPTY_FORM)} className="btn-secondary">
+                  Cancelar
+                </button>
+              )}
+              <button
+                disabled={!form.name || form.lat === null || save.isPending}
+                onClick={() => save.mutate(form)}
+                className="btn-primary"
+              >
+                {form.id === null ? 'Crear checkpoint' : 'Guardar cambios'}
               </button>
-            )}
+            </div>
           </div>
         </div>
       </div>
 
       {qrCheckpoint && <QrModal checkpoint={qrCheckpoint} onClose={() => setQrCheckpoint(null)} />}
+      {confirmDialog}
     </div>
   );
 }

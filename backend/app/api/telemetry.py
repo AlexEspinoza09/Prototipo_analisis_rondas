@@ -30,7 +30,7 @@ def telemetry_batch(
             status_code=status.HTTP_403_FORBIDDEN, detail="Session belongs to another guard"
         )
 
-    inserted, duplicates = ingest_batch(db, session, payload.points)
+    inserted, duplicates, ignored = ingest_batch(db, session, payload.points)
     return TelemetryBatchOut(
-        received=len(payload.points), inserted=inserted, duplicates=duplicates
+        received=len(payload.points), inserted=inserted, duplicates=duplicates, ignored=ignored
     )

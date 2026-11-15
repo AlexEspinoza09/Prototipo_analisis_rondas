@@ -22,11 +22,14 @@ export interface RouteCheckpoint {
   radius_m: number;
 }
 
+export type PatrolMode = 'foot' | 'vehicle';
+
 export interface RouteItem {
   id: number;
   site_id: number;
   name: string;
   expected_duration_min: number;
+  patrol_mode: PatrolMode;
   is_active: boolean;
   path: [number, number][] | null;
   checkpoints: RouteCheckpoint[];

@@ -14,6 +14,7 @@ from app.core.db import SessionLocal
 from app.core.security import hash_password
 from app.models import (
     Checkpoint,
+    PatrolMode,
     Route,
     RouteCheckpoint,
     Site,
@@ -21,16 +22,19 @@ from app.models import (
     UserRole,
 )
 
-ADMIN_EMAIL = "admin@protemaxi.ec"
+ADMIN_EMAIL = "admin@rondas.demo"
+GUARD_EMAILS = ("guardia1@rondas.demo", "guardia2@rondas.demo")
 
-# Checkpoints around a city block in Quito (Av. Amazonas / Naciones Unidas area).
+# Generic demo facility: a ~500 x 330 m perimeter (~1.7 km, ~25 min on foot)
+# in northern Quito. Offsets are the walking time from the first checkpoint.
 # (name, lng, lat, expected_offset_min)
 CHECKPOINT_DATA = [
-    ("Garita principal", -78.4880, -0.1760, 0),
-    ("Bodega norte", -78.4872, -0.1752, 7),
-    ("Parqueadero posterior", -78.4864, -0.1760, 14),
-    ("Acceso sur", -78.4872, -0.1768, 21),
+    ("Garita principal", -78.4855, -0.1855, 0),
+    ("Bodega", -78.4810, -0.1855, 7),
+    ("Cuarto de máquinas", -78.4810, -0.1825, 12),
+    ("Acceso posterior", -78.4855, -0.1825, 19),
 ]
+ROUTE_DURATION_MIN = 25
 
 
 def point_wkt(lng: float, lat: float) -> str:
@@ -44,20 +48,20 @@ def seed(db: Session) -> None:
 
     users = [
         User(
-            full_name="Administrador Protemaxi",
+            full_name="Administrador del Sistema",
             email=ADMIN_EMAIL,
             hashed_password=hash_password("Admin123!"),
             role=UserRole.admin,
         ),
         User(
             full_name="Carlos Quishpe",
-            email="guardia1@protemaxi.ec",
+            email=GUARD_EMAILS[0],
             hashed_password=hash_password("Guardia123!"),
             role=UserRole.guard,
         ),
         User(
             full_name="María Tipán",
-            email="guardia2@protemaxi.ec",
+            email=GUARD_EMAILS[1],
             hashed_password=hash_password("Guardia123!"),
             role=UserRole.guard,
         ),
@@ -65,8 +69,8 @@ def seed(db: Session) -> None:
     db.add_all(users)
 
     site = Site(
-        name="Planta Industrial Norte",
-        address="Av. Amazonas y Naciones Unidas, Quito, Ecuador",
+        name="Instalación de demostración",
+        address="Quito, Ecuador (ubicación ficticia de demostración)",
     )
     db.add(site)
     db.flush()
@@ -90,9 +94,10 @@ def seed(db: Session) -> None:
     linestring = ", ".join(f"{lng} {lat}" for lng, lat in coords)
     route = Route(
         site_id=site.id,
-        name="Ronda nocturna perímetro",
+        name="Ronda perimetral",
         expected_path=f"SRID=4326;LINESTRING({linestring})",
-        expected_duration_min=30,
+        expected_duration_min=ROUTE_DURATION_MIN,
+        patrol_mode=PatrolMode.foot,
     )
     db.add(route)
     db.flush()
@@ -112,7 +117,7 @@ def seed(db: Session) -> None:
     db.commit()
     print("Seed data created:")
     print(f"  admin:    {ADMIN_EMAIL} / Admin123!")
-    print("  guards:   guardia1@protemaxi.ec, guardia2@protemaxi.ec / Guardia123!")
+    print(f"  guards:   {', '.join(GUARD_EMAILS)} / Guardia123!")
     print(f"  site:     {site.name} ({len(checkpoints)} checkpoints)")
     print(f"  route:    {route.name}")
     for checkpoint in checkpoints:

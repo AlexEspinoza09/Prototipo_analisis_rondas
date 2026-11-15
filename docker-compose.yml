@@ -69,8 +69,13 @@ services:
   dashboard:
     image: node:22-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run dev"
-    restart: on-failure
+    # Reinstall dependencies only when package-lock.json changes, so a normal
+    # start does not wait on the network before Vite comes up.
+    command: >-
+      sh -c "sha1sum package-lock.json | cmp -s - node_modules/.lockhash
+      || (npm install --no-audit --no-fund && sha1sum package-lock.json > node_modules/.lockhash);
+      exec npm run dev"
+    restart: unless-stopped
     environment:
       VITE_API_URL: http://localhost:8000
     volumes:

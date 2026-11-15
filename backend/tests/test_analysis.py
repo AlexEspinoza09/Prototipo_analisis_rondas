@@ -1,5 +1,8 @@
 """Business rules 3 (route deviation, impossible speed) and 4 (performance
-decline), exercised with synthetic telemetry against real PostGIS."""
+decline), exercised with synthetic telemetry against real PostGIS.
+
+Sessions here last exactly as long as their track and their route has no
+checkpoints, so rules 5-7 stay quiet and each test isolates rule 3."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -11,6 +14,7 @@ from app.models import (
     Anomaly,
     AnomalySeverity,
     AnomalyType,
+    PatrolMode,
     PatrolSession,
     Route,
     SessionStatus,
@@ -18,19 +22,25 @@ from app.models import (
     TelemetryPoint,
     User,
 )
-from app.services.analysis_service import analyze_guards_performance, analyze_session_route
+from app.services.analysis_service import analyze_guards_performance, analyze_session
 from tests.factories import CP_LAT, CP_LNG, create_guard, lat_offset
 
 # Straight ~220 m south-to-north expected path starting at the reference point.
 PATH_LENGTH_M = 220.0
+# The default track (11 points every 15 s) spans 150 s of a 3-minute session.
+TRACK_MIN = 3
 EXPECTED_PATH = (
     f"SRID=4326;LINESTRING({CP_LNG} {CP_LAT}, {CP_LNG} {CP_LAT + lat_offset(PATH_LENGTH_M)})"
 )
 
 
 def _make_route_session(
-    db: Session, *, expected_path: str | None = EXPECTED_PATH
+    db: Session,
+    *,
+    expected_path: str | None = EXPECTED_PATH,
+    patrol_mode: PatrolMode = PatrolMode.foot,
 ) -> tuple[User, PatrolSession]:
+    now = datetime.now(timezone.utc)
     guard = create_guard(db)
     site = Site(name="Sitio análisis")
     db.add(site)
@@ -39,7 +49,8 @@ def _make_route_session(
         site_id=site.id,
         name="Ruta análisis",
         expected_path=expected_path,
-        expected_duration_min=30,
+        expected_duration_min=TRACK_MIN,
+        patrol_mode=patrol_mode,
     )
     db.add(route)
     db.flush()
@@ -48,8 +59,8 @@ def _make_route_session(
         route_id=route.id,
         device_id="synthetic",
         status=SessionStatus.completed,
-        started_at=datetime.now(timezone.utc) - timedelta(minutes=30),
-        ended_at=datetime.now(timezone.utc),
+        started_at=now - timedelta(minutes=TRACK_MIN),
+        ended_at=now,
     )
     db.add(session)
     db.commit()
@@ -89,7 +100,7 @@ def test_track_on_route_creates_no_anomalies(db, client):
     # 22 m every 15 s = 1.47 m/s, right on the path.
     _add_track(db, session)
 
-    anomalies = analyze_session_route(db, session.id)
+    anomalies = analyze_session(db, session.id)
 
     assert anomalies == []
     assert db.scalars(select(Anomaly)).all() == []
@@ -100,7 +111,7 @@ def test_deviated_track_creates_route_deviation(db, client):
     # Same shape but ~222 m to the west of the expected path.
     _add_track(db, session, lng_offset_deg=-0.002)
 
-    anomalies = analyze_session_route(db, session.id)
+    anomalies = analyze_session(db, session.id)
 
     assert len(anomalies) == 1
     anomaly = anomalies[0]
@@ -116,7 +127,7 @@ def test_impossible_speed_detected(db, client):
     # ~120 m every 15 s = ~8 m/s sustained for 150 s (>= 2x limit -> high).
     _add_track(db, session, step_m=120.0, n_points=11)
 
-    anomalies = analyze_session_route(db, session.id)
+    anomalies = analyze_session(db, session.id)
 
     assert len(anomalies) == 1
     anomaly = anomalies[0]
@@ -126,12 +137,22 @@ def test_impossible_speed_detected(db, client):
     assert anomaly.details["duration_s"] >= 30
 
 
+def test_vehicle_patrol_tolerates_vehicle_speed(db, client):
+    # Same ~8 m/s track as above: normal for a motorcycle patrol.
+    _, session = _make_route_session(db, expected_path=None, patrol_mode=PatrolMode.vehicle)
+    _add_track(db, session, step_m=120.0, n_points=11)
+
+    anomalies = analyze_session(db, session.id)
+
+    assert anomalies == []
+
+
 def test_route_analysis_is_idempotent(db, client):
     _, session = _make_route_session(db)
     _add_track(db, session, lng_offset_deg=-0.002)
 
-    first = analyze_session_route(db, session.id)
-    second = analyze_session_route(db, session.id)
+    first = analyze_session(db, session.id)
+    second = analyze_session(db, session.id)
 
     assert len(first) == 1
     assert second == []

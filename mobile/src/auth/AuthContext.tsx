@@ -9,11 +9,13 @@ import {
 
 import { api, getTokens, setTokens } from '../api/client';
 import type { TokenPair, User } from '../api/types';
+import { setOfflineMode } from '../offline/offlineMode';
 
 interface AuthState {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** offline = test mode with no backend (only in builds that allow it). */
+  login: (email: string, password: string, offline?: boolean) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -37,17 +39,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const tokens = await api<TokenPair>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    await setTokens(tokens);
-    setUser(await api<User>('/auth/me'));
+  const login = useCallback(async (email: string, password: string, offline = false) => {
+    setOfflineMode(offline);
+    try {
+      const tokens = await api<TokenPair>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      await setTokens(tokens);
+      setUser(await api<User>('/auth/me'));
+    } catch (err) {
+      setOfflineMode(false);
+      throw err;
+    }
   }, []);
 
   const logout = useCallback(async () => {
     await setTokens(null);
+    setOfflineMode(false);
     setUser(null);
   }, []);
 

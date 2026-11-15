@@ -22,8 +22,14 @@ from app.models import (
     UserRole,
 )
 from app.schemas.scan import SessionScanOut
-from app.schemas.session import SessionListOut, SessionOut, SessionStartIn
-from app.tasks.analysis import analyze_session_route_task
+from app.schemas.session import (
+    SessionListOut,
+    SessionOut,
+    SessionStartIn,
+    SessionTimelineOut,
+)
+from app.services.analysis_service import build_timeline
+from app.tasks.analysis import analyze_session_task
 
 logger = logging.getLogger(__name__)
 
@@ -134,9 +140,9 @@ def end_session(
     db.commit()
     db.refresh(session)
     try:
-        analyze_session_route_task.delay(session.id)
+        analyze_session_task.delay(session.id)
     except Exception:  # a broker outage must not break the mobile flow
-        logger.warning("Could not enqueue route analysis for session %s", session.id)
+        logger.warning("Could not enqueue analysis for session %s", session.id)
     return session
 
 
@@ -180,6 +186,17 @@ def session_track(
             "times": [t.isoformat() for t in point_times] if point_times else [],
         },
     }
+
+
+@router.get("/{session_id}/timeline", response_model=SessionTimelineOut)
+def session_timeline(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SessionTimelineOut:
+    """Expected vs. actual time of every checkpoint and stretch of the round (rule 5)."""
+    session = _get_session_authorized(db, session_id, user)
+    return SessionTimelineOut.model_validate(build_timeline(db, session))
 
 
 @router.get("", response_model=list[SessionListOut])

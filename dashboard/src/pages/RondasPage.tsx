@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { SessionListItem, SessionStatus, User } from '../api/types';
+import { Icon } from '../components/Icon';
+import { Badge, PageHeader, TableMessage, type Tone } from '../components/ui';
 import { STATUS_LABELS, formatDateTime } from '../lib/labels';
 
 // Status palette (validated reference palette): icon + label always accompany
@@ -11,10 +13,10 @@ import { STATUS_LABELS, formatDateTime } from '../lib/labels';
 const STATUS_GOOD = '#0ca30c';
 const STATUS_CRITICAL = '#d03b3b';
 
-const STATUS_PILL: Record<SessionStatus, { icon: string; className: string }> = {
-  in_progress: { icon: '●', className: 'bg-series/10 text-series' },
-  completed: { icon: '✓', className: 'bg-good/10 text-good' },
-  abandoned: { icon: '✕', className: 'bg-critical/10 text-critical' },
+const STATUS_TONE: Record<SessionStatus, Tone> = {
+  in_progress: 'info',
+  completed: 'good',
+  abandoned: 'critical',
 };
 
 function durationLabel(session: SessionListItem): string {
@@ -28,7 +30,7 @@ function durationLabel(session: SessionListItem): string {
 
 function ScanBar({ valid, invalid }: { valid: number; invalid: number }) {
   const total = valid + invalid;
-  if (total === 0) return <span className="text-sm text-muted">Sin escaneos</span>;
+  if (total === 0) return <span className="text-xs text-muted">Sin escaneos</span>;
   return (
     <div
       className="flex items-center gap-2"
@@ -71,104 +73,128 @@ export function RondasPage() {
     queryFn: () => api<User[]>('/users?role=guard'),
   });
 
-  const rows = (sessions.data ?? []).filter(
+  const all = sessions.data ?? [];
+  const rows = all.filter(
     (session) =>
       (statusFilter === '' || session.status === statusFilter) &&
       (guardFilter === '' || session.guard_id === guardFilter),
   );
-
-  const selectClass = 'rounded border border-grid bg-surface px-2 py-1.5 text-sm';
+  const filtered = statusFilter !== '' || guardFilter !== '';
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">Registros de rondas</h1>
-        <select
-          className={selectClass}
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as SessionStatus | '')}
-        >
-          <option value="">Todos los estados</option>
-          {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          className={selectClass}
-          value={guardFilter}
-          onChange={(e) => setGuardFilter(e.target.value ? Number(e.target.value) : '')}
-        >
-          <option value="">Todos los guardias</option>
-          {guards.data?.map((guard) => (
-            <option key={guard.id} value={guard.id}>
-              {guard.full_name}
-            </option>
-          ))}
-        </select>
-        {sessions.isLoading && <span className="text-sm text-muted">Cargando…</span>}
-      </div>
+      <PageHeader
+        title="Registro de rondas"
+        description="Historial de las rondas ejecutadas, con su duración y el resultado de los escaneos."
+      />
 
-      <div className="overflow-x-auto rounded-lg border border-grid bg-surface">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-grid text-left text-xs uppercase tracking-wide text-muted">
-              <th className="px-4 py-3">#</th>
-              <th className="px-4 py-3">Guardia</th>
-              <th className="px-4 py-3">Ruta</th>
-              <th className="px-4 py-3">Inicio</th>
-              <th className="px-4 py-3">Duración</th>
-              <th className="px-4 py-3">Escaneos</th>
-              <th className="px-4 py-3">Estado</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((session) => {
-              const pill = STATUS_PILL[session.status];
-              return (
-                <tr key={session.id} className="border-b border-grid/60 last:border-0 hover:bg-plane">
-                  <td className="px-4 py-2.5 tabular-nums text-ink-2">{session.id}</td>
-                  <td className="px-4 py-2.5">{session.guard_name}</td>
-                  <td className="px-4 py-2.5">{session.route_name}</td>
-                  <td className="whitespace-nowrap px-4 py-2.5">
-                    {formatDateTime(session.started_at)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 tabular-nums">
-                    {durationLabel(session)}
-                  </td>
-                  <td className="px-4 py-2.5">
+      <div className="card">
+        <div className="card-header">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="field-label" htmlFor="filter-status">
+                Estado
+              </label>
+              <select
+                id="filter-status"
+                className="input w-48"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as SessionStatus | '')}
+              >
+                <option value="">Todos</option>
+                {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label" htmlFor="filter-guard">
+                Guardia
+              </label>
+              <select
+                id="filter-guard"
+                className="input w-56"
+                value={guardFilter}
+                onChange={(e) => setGuardFilter(e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">Todos</option>
+                {guards.data?.map((guard) => (
+                  <option key={guard.id} value={guard.id}>
+                    {guard.full_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {filtered && (
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setStatusFilter('');
+                  setGuardFilter('');
+                }}
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>N.º</th>
+                <th>Guardia</th>
+                <th>Ruta</th>
+                <th>Inicio</th>
+                <th>Duración</th>
+                <th>Escaneos</th>
+                <th>Estado</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((session) => (
+                <tr key={session.id} className="row-hover">
+                  <td className="tabular-nums text-ink-2">{session.id}</td>
+                  <td className="font-medium">{session.guard_name}</td>
+                  <td>{session.route_name}</td>
+                  <td className="whitespace-nowrap">{formatDateTime(session.started_at)}</td>
+                  <td className="whitespace-nowrap tabular-nums">{durationLabel(session)}</td>
+                  <td>
                     <ScanBar valid={session.scans_valid} invalid={session.scans_invalid} />
                   </td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${pill.className}`}
-                    >
-                      <span aria-hidden>{pill.icon}</span>
-                      {STATUS_LABELS[session.status]}
-                    </span>
+                  <td>
+                    <Badge tone={STATUS_TONE[session.status]}>{STATUS_LABELS[session.status]}</Badge>
                   </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <Link
-                      to={`/mapa?sesion=${session.id}`}
-                      className="text-xs text-series hover:underline"
-                    >
-                      Ver en mapa
+                  <td className="text-right">
+                    <Link to={`/mapa?sesion=${session.id}`} className="link-action">
+                      <Icon name="map" size={14} />
+                      Ver en el mapa
                     </Link>
                   </td>
                 </tr>
-              );
-            })}
-            {rows.length === 0 && !sessions.isLoading && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-muted">
-                  No hay rondas con estos filtros.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              ))}
+              {sessions.isLoading && <TableMessage colSpan={8}>Cargando rondas…</TableMessage>}
+              {rows.length === 0 && !sessions.isLoading && (
+                <TableMessage colSpan={8}>
+                  {filtered
+                    ? 'Ninguna ronda coincide con los filtros seleccionados.'
+                    : 'Todavía no se registran rondas.'}
+                </TableMessage>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {!sessions.isLoading && (
+          <div className="table-footer">
+            {filtered
+              ? `${rows.length} de ${all.length} rondas`
+              : `${all.length} rondas registradas`}
+          </div>
+        )}
       </div>
     </div>
   );

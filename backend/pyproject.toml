@@ -1,7 +1,7 @@
 [project]
 name = "rondas-backend"
 version = "0.1.0"
-description = "Backend del Sistema de Monitoreo Inteligente de Rondas de Seguridad (Protemaxi)"
+description = "Backend del sistema de Monitoreo Inteligente de Rondas de Seguridad"
 requires-python = ">=3.12"
 
 [tool.ruff]

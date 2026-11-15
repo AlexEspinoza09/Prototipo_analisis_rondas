@@ -85,11 +85,14 @@ export interface RouteCheckpoint {
   radius_m: number;
 }
 
+export type PatrolMode = 'foot' | 'vehicle';
+
 export interface RouteItem {
   id: number;
   site_id: number;
   name: string;
   expected_duration_min: number;
+  patrol_mode: PatrolMode;
   is_active: boolean;
   path: [number, number][] | null;
   checkpoints: RouteCheckpoint[];
@@ -100,7 +103,16 @@ export type AnomalyType =
   | 'route_deviation'
   | 'impossible_speed'
   | 'inactivity'
-  | 'performance_decline';
+  | 'performance_decline'
+  | 'segment_too_fast'
+  | 'segment_too_slow'
+  | 'out_of_sequence'
+  | 'missed_checkpoint'
+  | 'round_too_short'
+  | 'round_too_long'
+  | 'sensor_mismatch'
+  | 'telemetry_gap'
+  | 'gps_jump';
 
 export type Severity = 'low' | 'medium' | 'high';
 
@@ -114,6 +126,36 @@ export interface Anomaly {
   detected_at: string;
   details: Record<string, unknown>;
   reviewed: boolean;
+}
+
+export type TimelineScanStatus = 'valid' | 'invalid' | 'missed';
+export type SegmentVerdict = 'ok' | 'fast' | 'slow';
+
+export interface SessionTimeline {
+  session_id: number;
+  patrol_mode: PatrolMode;
+  expected_duration_min: number;
+  actual_duration_min: number | null;
+  out_of_sequence: boolean;
+  checkpoints: {
+    checkpoint_id: number;
+    name: string;
+    sequence_order: number;
+    expected_offset_min: number;
+    visited_at: string | null;
+    actual_offset_min: number | null;
+    scan_status: TimelineScanStatus;
+  }[];
+  segments: {
+    from_checkpoint_id: number;
+    from_name: string;
+    to_checkpoint_id: number;
+    to_name: string;
+    expected_min: number;
+    actual_min: number;
+    ratio: number | null;
+    verdict: SegmentVerdict;
+  }[];
 }
 
 export interface Summary {

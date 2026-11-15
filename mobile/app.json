@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Rondas Protemaxi",
-    "slug": "rondas-protemaxi",
+    "name": "Monitoreo de Rondas",
+    "slug": "monitoreo-rondas",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -9,7 +9,7 @@
       "android"
     ],
     "android": {
-      "package": "com.protemaxi.rondas",
+      "package": "com.monitoreorondas.app",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
