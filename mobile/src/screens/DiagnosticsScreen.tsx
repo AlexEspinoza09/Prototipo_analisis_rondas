@@ -21,12 +21,14 @@ import { colors } from '../theme';
 import { readLastFix, type LastFix } from '../tracking/locationTask';
 import {
   readLastSensorWindow,
-  startSensorSampling,
-  stopSensorSampling,
-  type SensorWindow,
+  sampleSensorWindow,
+  storeSensorWindow,
+  type StoredSensorWindow,
 } from '../tracking/sensors';
 
 const REFRESH_MS = 3000;
+// With no patrol running, this screen takes its own sensor windows this often.
+const OWN_SAMPLING_MS = 10_000;
 const RECENT_POINTS = 15;
 const EXPORT_LIMIT = 5000;
 
@@ -38,24 +40,31 @@ const ageSeconds = (ts: number) => Math.round((Date.now() - ts) / 1000);
 const clock = (iso: string) =>
   new Date(iso).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+// Every stored column, in a stable order, so the export keeps up with new features.
+const CSV_COLUMNS = [
+  'session_id',
+  'recorded_at',
+  'lat',
+  'lng',
+  'accuracy_m',
+  'speed_mps',
+  'accel_magnitude',
+  'accel_std',
+  'accel_max',
+  'accel_dominant_hz',
+  'accel_peak_ratio',
+  'gyro_magnitude',
+  'gyro_std',
+  'gyro_max',
+  'gyro_dominant_hz',
+  'gyro_peak_ratio',
+  'sensor_sample_count',
+  'is_moving',
+] as const satisfies ReadonlyArray<keyof BufferedPoint>;
+
 function toCsv(points: BufferedPoint[]): string {
-  const header =
-    'session_id,recorded_at,lat,lng,accuracy_m,speed_mps,accel_magnitude,accel_std,gyro_magnitude,is_moving';
-  const rows = points.map((p) =>
-    [
-      p.session_id,
-      p.recorded_at,
-      p.lat,
-      p.lng,
-      p.accuracy_m,
-      p.speed_mps ?? '',
-      p.accel_magnitude ?? '',
-      p.accel_std ?? '',
-      p.gyro_magnitude ?? '',
-      p.is_moving ?? '',
-    ].join(','),
-  );
-  return [header, ...rows].join('\n');
+  const rows = points.map((p) => CSV_COLUMNS.map((column) => p[column] ?? '').join(','));
+  return [CSV_COLUMNS.join(','), ...rows].join('\n');
 }
 
 /** Shows what the phone is capturing and storing, with no server needed. */
@@ -64,14 +73,21 @@ export function DiagnosticsScreen() {
   const [stats, setStats] = useState<TelemetryStats>(telemetryStats());
   const [points, setPoints] = useState<BufferedPoint[]>([]);
   const [scans, setScans] = useState<OfflineScan[]>([]);
-  const [sensors, setSensors] = useState<SensorWindow | null>(null);
+  const [sensors, setSensors] = useState<StoredSensorWindow | null>(null);
   const [fix, setFix] = useState<LastFix | null>(null);
   const [gyroAvailable, setGyroAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Sample sensors while this screen is open, even with no patrol running.
-    const ownSampling = patrol === null;
-    if (ownSampling) startSensorSampling();
+    // During a patrol the location task samples the sensors on every GPS fix;
+    // with no patrol, sample here so the sensors can still be checked.
+    let active = true;
+    const sampleOnce = async () => {
+      const window = storeSensorWindow(await sampleSensorWindow());
+      if (active) setSensors(window);
+    };
+    const sampler =
+      patrol === null ? setInterval(() => void sampleOnce(), OWN_SAMPLING_MS) : null;
+    if (patrol === null) void sampleOnce();
     void Gyroscope.isAvailableAsync()
       .then(setGyroAvailable)
       .catch(() => setGyroAvailable(false));
@@ -86,8 +102,9 @@ export function DiagnosticsScreen() {
     refresh();
     const timer = setInterval(refresh, REFRESH_MS);
     return () => {
+      active = false;
       clearInterval(timer);
-      if (ownSampling) stopSensorSampling();
+      if (sampler !== null) clearInterval(sampler);
     };
   }, [patrol]);
 
@@ -142,16 +159,28 @@ export function DiagnosticsScreen() {
         />
         {sensors ? (
           <>
-            <DataRow label="Aceleración media" value={`${fmt(sensors.value)} m/s²`} />
-            <DataRow label="Vibración" value={`${fmt(sensors.std, 3)} m/s²`} />
-            <DataRow label="Rotación media" value={`${fmt(sensors.gyro, 3)} rad/s`} />
+            <DataRow label="Aceleración media" value={`${fmt(sensors.accel_magnitude)} m/s²`} />
+            <DataRow label="Vibración" value={`${fmt(sensors.accel_std, 3)} m/s²`} />
+            <DataRow label="Aceleración máxima" value={`${fmt(sensors.accel_max)} m/s²`} />
+            <DataRow
+              label="Cadencia dominante"
+              value={
+                sensors.accel_dominant_hz === null
+                  ? '—'
+                  : `${fmt(sensors.accel_dominant_hz, 1)} Hz (${fmt((sensors.accel_peak_ratio ?? 0) * 100, 0)} %)`
+              }
+            />
+            <DataRow label="Rotación media" value={`${fmt(sensors.gyro_magnitude, 3)} rad/s`} />
+            <DataRow label="Rotación máxima" value={`${fmt(sensors.gyro_max, 3)} rad/s`} />
+            <DataRow label="Muestras en la ventana" value={String(sensors.sensor_sample_count ?? '—')} />
             <DataRow label="Última lectura" value={`hace ${ageSeconds(sensors.ts)} s`} last />
           </>
         ) : (
           <DataRow label="Última lectura" value="Esperando (hasta 5 s)…" last />
         )}
         <Text style={styles.hint}>
-          Se mide una ventana de 5 s cada 30 s, únicamente con la aplicación abierta.
+          Durante la ronda se mide una ventana de 5 s con cada posición GPS, también con la
+          pantalla apagada.
         </Text>
       </Card>
 

@@ -13,6 +13,21 @@ class SessionStatus(str, enum.Enum):
     abandoned = "abandoned"
 
 
+class ActivityLabel(str, enum.Enum):
+    """Ground truth for a labelled collection session (training data only).
+
+    Normal patrol sessions leave this NULL; only rounds recorded on purpose to
+    build the activity-recognition dataset carry a label.
+    """
+
+    walking = "walking"
+    still = "still"
+    vehicle = "vehicle"
+    # Phone shaken by hand to fake movement: the fraud a mean-based threshold
+    # cannot tell apart from walking.
+    shaking = "shaking"
+
+
 class PatrolSession(Base):
     __tablename__ = "patrol_sessions"
 
@@ -33,6 +48,9 @@ class PatrolSession(Base):
         default=SessionStatus.in_progress,
     )
     device_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    activity_label: Mapped[ActivityLabel | None] = mapped_column(
+        Enum(ActivityLabel, name="activity_label")
+    )
 
     guard: Mapped["User"] = relationship()  # noqa: F821
     route: Mapped["Route"] = relationship()  # noqa: F821

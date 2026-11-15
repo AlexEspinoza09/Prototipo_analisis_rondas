@@ -1,7 +1,7 @@
-"""patrol mode, extra sensor columns and new anomaly types
+"""patrol mode and new anomaly types
 
-Revision ID: 0002_patrol_analysis
-Revises: 0001_initial
+Revision ID: 0005_patrol_analysis
+Revises: 0004_activity_label
 Create Date: 2026-10-31
 
 """
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0002_patrol_analysis"
-down_revision: str | None = "0001_initial"
+revision: str = "0005_patrol_analysis"
+down_revision: str | None = "0004_activity_label"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -36,10 +36,8 @@ def upgrade() -> None:
         sa.Column("patrol_mode", patrol_mode, nullable=False, server_default="foot"),
     )
 
-    # Columns added to the partitioned parent propagate to every partition.
-    op.add_column("telemetry_points", sa.Column("accel_std", sa.Float))
-    op.add_column("telemetry_points", sa.Column("gyro_magnitude", sa.Float))
-
+    # The sensor columns the new rules read (accel_std, gyro_magnitude) come
+    # from migrations 0002 and 0003.
     for value in NEW_ANOMALY_TYPES:
         op.execute(f"ALTER TYPE anomaly_type ADD VALUE IF NOT EXISTS '{value}'")
 
@@ -49,7 +47,5 @@ def downgrade() -> None:
     # values stay in the anomaly_type enum (harmless).
     values = ", ".join(f"'{value}'" for value in NEW_ANOMALY_TYPES)
     op.execute(f"DELETE FROM anomalies WHERE type::text IN ({values})")
-    op.drop_column("telemetry_points", "gyro_magnitude")
-    op.drop_column("telemetry_points", "accel_std")
     op.drop_column("routes", "patrol_mode")
     sa.Enum(name="patrol_mode").drop(op.get_bind(), checkfirst=True)

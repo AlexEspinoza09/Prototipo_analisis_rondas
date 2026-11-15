@@ -2,14 +2,14 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
 import {
-  ACCEL_MAX_AGE_MS,
   GPS_INTERVAL_MS,
   IS_MOVING_THRESHOLD_MPS2,
+  IS_MOVING_THRESHOLD_RADS,
   MIN_POINT_INTERVAL_MS,
   STALE_FIX_TOLERANCE_MS,
 } from '../config';
 import { deleteKv, getKv, insertTelemetry, setKv } from '../db/local';
-import type { SensorWindow } from './sensors';
+import { sampleSensorWindow, storeSensorWindow, type SensorWindow } from './sensors';
 
 export const LOCATION_TASK = 'rondas-location-task';
 
@@ -20,15 +20,13 @@ export interface LastFix {
   ts: number;
 }
 
-function readRecentSensors(): SensorWindow | null {
-  const raw = getKv('last_sensors');
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as SensorWindow;
-    return Date.now() - parsed.ts <= ACCEL_MAX_AGE_MS ? parsed : null;
-  } catch {
-    return null;
-  }
+/** null when neither sensor reported, so the backend defers business rule 2. */
+function deriveIsMoving(sensors: SensorWindow): number | null {
+  const { accel_magnitude: accel, gyro_magnitude: gyro } = sensors;
+  if (accel === null && gyro === null) return null;
+  const moving =
+    (accel ?? 0) > IS_MOVING_THRESHOLD_MPS2 || (gyro ?? 0) > IS_MOVING_THRESHOLD_RADS;
+  return moving ? 1 : 0;
 }
 
 export function readLastFix(): LastFix | null {
@@ -54,44 +52,53 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   if (sessionId === null) return;
 
   const { locations } = data as { locations: Location.LocationObject[] };
-  const sensors = readRecentSensors();
   const startedAt = Number(getKv('active_session_started') ?? 0);
   let lastStored = Number(getKv('last_point_ts') ?? 0);
 
+  const toStore: Location.LocationObject[] = [];
   for (const location of locations) {
     // Android may hand over a cached fix from before the patrol started.
     if (location.timestamp < startedAt - STALE_FIX_TOLERANCE_MS) continue;
 
-    const accuracy = location.coords.accuracy ?? 999;
     // The scan GPS gate always sees the freshest fix, stored or not.
     setKv(
       'last_fix',
       JSON.stringify({
         lat: location.coords.latitude,
         lng: location.coords.longitude,
-        accuracy_m: accuracy,
+        accuracy_m: location.coords.accuracy ?? 999,
         ts: location.timestamp,
       } satisfies LastFix),
     );
     if (location.timestamp - lastStored < MIN_POINT_INTERVAL_MS) continue;
+    toStore.push(location);
+    lastStored = location.timestamp;
+  }
+  if (toStore.length === 0) return;
+  // Saved before the 5 s sensor window below, so a burst of task runs that
+  // overlap it cannot all store a point.
+  setKv('last_point_ts', String(lastStored));
 
+  // Sampled here, inside the headless context, so readings keep coming with the
+  // app in background — the foreground service makes the sensors available.
+  const sensors = await sampleSensorWindow();
+  storeSensorWindow(sensors);
+  const isMoving = deriveIsMoving(sensors);
+
+  for (const location of toStore) {
     insertTelemetry({
       session_id: sessionId,
       recorded_at: new Date(location.timestamp).toISOString(),
       lat: location.coords.latitude,
       lng: location.coords.longitude,
-      accuracy_m: accuracy,
+      accuracy_m: location.coords.accuracy ?? 999,
       speed_mps: location.coords.speed !== null && location.coords.speed >= 0
         ? location.coords.speed
         : null,
-      accel_magnitude: sensors?.value ?? null,
-      accel_std: sensors?.std ?? null,
-      gyro_magnitude: sensors?.gyro ?? null,
-      is_moving: sensors !== null ? (sensors.value > IS_MOVING_THRESHOLD_MPS2 ? 1 : 0) : null,
+      ...sensors,
+      is_moving: isMoving,
     });
-    lastStored = location.timestamp;
   }
-  setKv('last_point_ts', String(lastStored));
 });
 
 export async function startTracking(sessionId: number): Promise<void> {

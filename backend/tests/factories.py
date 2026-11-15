@@ -106,6 +106,7 @@ def add_telemetry_window(
     *,
     accel_magnitude: float,
     is_moving: bool,
+    gyro_magnitude: float | None = None,
     minutes: int = 5,
     interval_s: int = 30,
 ) -> int:
@@ -122,6 +123,7 @@ def add_telemetry_window(
                 accuracy_m=8.0,
                 speed_mps=1.2 if is_moving else 0.0,
                 accel_magnitude=accel_magnitude,
+                gyro_magnitude=gyro_magnitude,
                 is_moving=is_moving,
             )
         )

@@ -100,11 +100,12 @@ Todos los endpoints (salvo login/refresh y health) requieren `Authorization: Bea
 | GET | `/sessions` | Lista sesiones (admin/supervisor) |
 | POST | `/telemetry/batch` | Ingesta bulk idempotente de puntos GPS/sensores (`accel_magnitude`, `accel_std`, `gyro_magnitude`, `is_moving` opcionales) |
 | POST | `/scans` | Registra escaneo QR y valida en línea (reglas 1 y 2) |
+| PATCH | `/sessions/{id}/label` | Etiqueta la sesion para el dataset de actividad |
 
 Reglas de negocio implementadas en `/scans`:
 
 1. **Validación geográfica**: si `ST_Distance(scan, checkpoint) > radius_m` → escaneo inválido (`out_of_range`) + anomalía `fraudulent_scan` con severidad según la distancia (configurable vía `FRAUD_SEVERITY_*_RATIO`).
-2. **Inmovilidad previa**: si en los 5 minutos previos el promedio de `accel_magnitude` está bajo el umbral de caminata o `is_moving=false` en >80% de los puntos → escaneo inválido (`no_prior_movement`) + anomalía `inactivity`. Sin telemetría en la ventana, la regla se difiere. En rutas **en vehículo** un trayecto suave da poca aceleración, así que además se exige que el GPS se haya desplazado menos de `INACTIVITY_VEHICLE_MIN_DISPLACEMENT_M` (50 m).
+2. **Inmovilidad previa**: si en los 5 minutos previos el promedio de `accel_magnitude` está bajo el umbral de caminata o `is_moving=false` en >80% de los puntos → escaneo inválido (`no_prior_movement`) + anomalía `inactivity`. Sin telemetría en la ventana, la regla se difiere. La app deriva `is_moving` del acelerómetro **y** del giroscopio (ver [mobile/README.md](mobile/README.md)). En rutas **en vehículo** un trayecto suave da poca aceleración, así que además se exige que el GPS se haya desplazado menos de `INACTIVITY_VEHICLE_MIN_DISPLACEMENT_M` (50 m).
 
 Un segundo escaneo del mismo checkpoint en la misma sesión se marca `duplicate` (sin anomalía).
 
@@ -147,6 +148,39 @@ eas build --profile development --platform android   # dev build
 eas build --profile preview --platform android       # APK para distribuir
 ```
 
+## Dataset de reconocimiento de actividad
+
+Los umbrales fijos no distinguen a un guardia que camina de uno que recorre la ronda en
+vehiculo, ni de uno que agita el telefono para simular movimiento: la media de aceleracion
+es parecida en los tres casos. Lo que los separa es la dispersion y el ritmo, y por eso cada
+ventana de sensores guarda desviacion estandar, maximo, frecuencia dominante (banda 0.5-5 Hz)
+y ratio de pico, ademas de la media. Ver [mobile/README.md](mobile/README.md).
+
+Para entrenar un clasificador sobre esas features hace falta verdad de terreno. El flujo es:
+
+```bash
+# 1. Grabar una ronda dedicada por actividad (caminar, quieto, vehiculo, agitar el telefono)
+#    desde la app movil, como una ronda normal.
+
+# 2. Etiquetar la sesion ya terminada (el guardia dueno de la sesion, admin o supervisor)
+curl -X PATCH http://localhost:8000/sessions/12/label   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"activity_label": "walking"}'
+
+# 3. Exportar el dataset listo para pandas/scikit-learn
+docker compose exec api python -m app.export_dataset --out /app/dataset.csv
+```
+
+Etiquetas validas: `walking`, `still`, `vehicle`, `shaking`. Las sesiones sin etiqueta
+(rondas reales) nunca entran al dataset.
+
+El export decide el **split train/test por sesion**, no por fila. Es deliberado: las ventanas
+de una misma sesion son casi identicas entre si, asi que un split aleatorio por fila coloca
+muestras casi duplicadas a ambos lados e infla el accuracy hasta un numero que no significa
+nada. Al venir la columna `split` ya resuelta en el CSV, el error no se puede cometer despues.
+
+El script tambien descarta ventanas con features incompletas (sin imputar nada), avisa cuando
+una clase tiene una sola sesion — no se puede evaluar — y recuerda que `speed_mps` viene del
+GPS, no de los sensores inerciales: incluirla hace la clase `vehicle` trivialmente separable.
+
 ## Migraciones
 
 ```bash
@@ -157,7 +191,7 @@ docker compose exec api alembic revision --autogenerate -m "descripcion"
 docker compose exec api alembic upgrade head
 ```
 
-Nota: la tabla `telemetry_points` está particionada por mes sobre `recorded_at`. La migración inicial crea particiones para los próximos 12 meses más una partición `DEFAULT`. La migración `0002_patrol_analysis` añade el modo de patrullaje de las rutas, las columnas `accel_std` y `gyro_magnitude` de la telemetría y los nuevos tipos de anomalía.
+Nota: la tabla `telemetry_points` está particionada por mes sobre `recorded_at`. La migración inicial crea particiones para los próximos 12 meses más una partición `DEFAULT`. Las migraciones `0002` a `0004` añaden las features de sensores y la etiqueta de actividad; la `0005_patrol_analysis` añade el modo de patrullaje de las rutas y los nuevos tipos de anomalía.
 
 ## Estado del proyecto
 
@@ -165,5 +199,5 @@ Nota: la tabla `telemetry_points` está particionada por mes sobre `recorded_at`
 - ✅ **Etapa 2 — Core del backend**: auth JWT, sesiones, telemetría batch idempotente, escaneos con validación geográfica e inmovilidad.
 - ✅ **Etapa 3 — Análisis asíncrono**: desviación de ruta (Fréchet), velocidades imposibles y patrón degradante nocturno con Celery + Beat.
 - ✅ **Etapa 4 — Dashboard**: mapa de sesiones (trayectoria real vs. esperada, checkpoints coloreados), tabla de anomalías con evidencia expandible, KPIs con Recharts y administración (checkpoints con QR imprimible, rutas dibujadas sobre el mapa, personal).
-- ✅ **Etapa 5 — App móvil**: Expo (development build) con GPS en background + buffer SQLite + sincronización con backoff, escaneo QR con validación de señal y feedback inmediato, historial. Ver [mobile/README.md](mobile/README.md) para generar el dev build y el APK con EAS.
+- ✅ **Etapa 5 — App móvil**: Expo (development build) con GPS en background + buffer SQLite + sincronización con backoff, escaneo QR con validación de señal y feedback inmediato, historial. Acelerómetro y giroscopio se muestrean dentro del task de ubicación, por lo que siguen registrando con la pantalla apagada. Ver [mobile/README.md](mobile/README.md) para generar el dev build y el APK con EAS. 36 tests backend.
 - ✅ **Ampliación del análisis**: tiempos y orden entre checkpoints (regla 5), giróscopo y variabilidad de la aceleración con detección de incoherencia sensores/GPS (regla 6), calidad de señal GPS (regla 7), modo de patrullaje a pie/vehículo, línea de tiempo de la ronda en el dashboard y matriz de evaluación con escenarios controlados. 50 tests backend.

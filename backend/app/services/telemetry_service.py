@@ -8,6 +8,14 @@ from app.models import PatrolSession, TelemetryPoint
 from app.schemas.telemetry import TelemetryPointIn
 
 
+# Every schema field maps 1:1 onto a telemetry_points column except lat/lng,
+# which combine into the PostGIS `location`. Deriving the list here keeps new
+# sensor features flowing through without touching this module.
+_COLUMN_FIELDS = tuple(
+    name for name in TelemetryPointIn.model_fields if name not in {"lat", "lng"}
+)
+
+
 def ingest_batch(
     db: Session, session: PatrolSession, points: list[TelemetryPointIn]
 ) -> tuple[int, int, int]:
@@ -27,14 +35,8 @@ def ingest_batch(
     values = [
         {
             "session_id": session.id,
-            "recorded_at": point.recorded_at,
             "location": f"SRID=4326;POINT({point.lng} {point.lat})",
-            "accuracy_m": point.accuracy_m,
-            "speed_mps": point.speed_mps,
-            "accel_magnitude": point.accel_magnitude,
-            "accel_std": point.accel_std,
-            "gyro_magnitude": point.gyro_magnitude,
-            "is_moving": point.is_moving,
+            **{name: getattr(point, name) for name in _COLUMN_FIELDS},
         }
         for point in fresh
     ]

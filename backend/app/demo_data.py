@@ -116,6 +116,39 @@ class SessionBuilder:
         self.points: list[dict] = []
         self.scan_plan: list[tuple[int, Coord, datetime]] = []
 
+    def _sensor_features(self, moving: bool) -> dict:
+        """Window features consistent with the activity, mirroring what the app
+        computes on-device: walking is high-dispersion and rhythmic around 2 Hz,
+        a resting phone is neither."""
+        g = self.rng.gauss
+        if moving:
+            return {
+                "gyro_magnitude": max(0.0, g(1.4, 0.3)),
+                "accel_std": max(0.05, g(1.2, 0.25)),
+                "accel_max": max(0.5, g(6.0, 1.2)),
+                "gyro_std": max(0.02, g(0.8, 0.2)),
+                "gyro_max": max(0.1, g(4.0, 0.9)),
+                "accel_dominant_hz": min(5.0, max(0.5, g(1.9, 0.25))),
+                "accel_peak_ratio": min(1.0, max(0.0, g(0.35, 0.07))),
+                "gyro_dominant_hz": min(5.0, max(0.5, g(1.9, 0.3))),
+                "gyro_peak_ratio": min(1.0, max(0.0, g(0.30, 0.07))),
+                "sensor_sample_count": max(30, round(g(98, 6))),
+            }
+        return {
+            "gyro_magnitude": max(0.0, g(0.05, 0.02)),
+            "accel_std": max(0.0, g(0.09, 0.03)),
+            "accel_max": max(0.0, g(0.7, 0.2)),
+            "gyro_std": max(0.0, g(0.03, 0.01)),
+            "gyro_max": max(0.0, g(0.2, 0.06)),
+            # No cadence to lock onto: the peak lands anywhere and carries little
+            # of the band's power.
+            "accel_dominant_hz": self.rng.uniform(0.5, 5.0),
+            "accel_peak_ratio": min(1.0, max(0.0, g(0.06, 0.02))),
+            "gyro_dominant_hz": self.rng.uniform(0.5, 5.0),
+            "gyro_peak_ratio": min(1.0, max(0.0, g(0.06, 0.02))),
+            "sensor_sample_count": max(30, round(g(98, 6))),
+        }
+
     def _add_point(
         self,
         pos: Coord,
@@ -127,6 +160,8 @@ class SessionBuilder:
         lng, lat = _jitter(pos, self.rng)
         accel, accel_std, gyro = sensors
         accel_value = max(0.01, self.rng.gauss(accel, accel * 0.15))
+        # Same rule the app uses: mean deviation from gravity > 0.8 m/s^2
+        is_moving = accel_value > 0.8
         self.points.append(
             {
                 "recorded_at": self.t,
@@ -134,10 +169,12 @@ class SessionBuilder:
                 "accuracy_m": accuracy_m or self.rng.uniform(5, 12),
                 "speed_mps": max(0.0, speed + self.rng.gauss(0, 0.15)),
                 "accel_magnitude": round(accel_value, 3),
+                # Rhythm and peak features for the activity dataset...
+                **self._sensor_features(is_moving),
+                # ...while the scenario decides the ones the fraud rules read.
                 "accel_std": round(max(0.001, self.rng.gauss(accel_std, accel_std * 0.2)), 4),
                 "gyro_magnitude": round(max(0.0005, self.rng.gauss(gyro, gyro * 0.25)), 4),
-                # Same rule the app uses: mean deviation from gravity > 0.8 m/s^2
-                "is_moving": accel_value > 0.8,
+                "is_moving": is_moving,
             }
         )
 
