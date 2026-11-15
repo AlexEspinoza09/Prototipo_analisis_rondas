@@ -104,7 +104,7 @@ export async function startTracking(sessionId: number): Promise<void> {
     distanceInterval: 0,
     foregroundService: {
       notificationTitle: 'Ronda en curso',
-      notificationBody: 'Registrando tu recorrido para validar la ronda.',
+      notificationBody: 'Se está registrando el recorrido para validar la ronda.',
       killServiceOnDestroy: false,
     },
   });

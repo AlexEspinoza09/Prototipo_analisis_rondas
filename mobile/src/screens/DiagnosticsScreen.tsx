@@ -1,6 +1,8 @@
 import { Gyroscope } from 'expo-sensors';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+
+import { Badge, Button, Card, DataRow, SectionTitle } from '../components/ui';
 
 import { API_URL } from '../config';
 import {
@@ -15,6 +17,7 @@ import {
 import { REASON_LABELS } from '../lib/labels';
 import { isOfflineMode } from '../offline/offlineMode';
 import { usePatrol } from '../patrol/PatrolContext';
+import { colors } from '../theme';
 import { readLastFix, type LastFix } from '../tracking/locationTask';
 import {
   readLastSensorWindow,
@@ -91,7 +94,7 @@ export function DiagnosticsScreen() {
   const onShare = async () => {
     const all = recentTelemetry(EXPORT_LIMIT).reverse();
     if (all.length === 0) {
-      Alert.alert('Sin datos', 'Todavía no hay puntos guardados.');
+      Alert.alert('Sin datos', 'Todavía no hay puntos registrados.');
       return;
     }
     await Share.share({ title: 'Telemetría de rondas', message: toCsv(all) });
@@ -100,7 +103,7 @@ export function DiagnosticsScreen() {
   const onClear = () => {
     Alert.alert(
       'Borrar datos de prueba',
-      'Se borran los puntos y escaneos de las rondas sin servidor. Los datos pendientes de enviar al servidor no se tocan.',
+      'Se eliminarán los puntos y escaneos de las rondas de prueba. Los datos pendientes de envío al servidor se conservan.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -119,61 +122,64 @@ export function DiagnosticsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, gap: 12 }}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Modo</Text>
-        <Text style={styles.line}>
-          {isOfflineMode() ? 'Prueba sin servidor: nada se envía' : `Servidor: ${API_URL}`}
-        </Text>
-        <Text style={styles.line}>
-          Ronda activa: {patrol ? `#${patrol.sessionId}` : 'ninguna'}
-        </Text>
-      </View>
+      <Card>
+        <SectionTitle>Estado</SectionTitle>
+        <DataRow
+          label="Modo"
+          value={isOfflineMode() ? 'Prueba sin servidor' : 'Conectado al servidor'}
+        />
+        {!isOfflineMode() && <DataRow label="Servidor" value={API_URL} />}
+        <DataRow label="Ronda activa" value={patrol ? `N.º ${patrol.sessionId}` : 'Ninguna'} last />
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.title}>Sensores (ventana de 5 s cada 30 s)</Text>
-        <Text style={styles.line}>
-          Giroscopio: {gyroAvailable === null ? 'comprobando…' : gyroAvailable ? 'disponible' : 'no disponible'}
-        </Text>
+      <Card>
+        <SectionTitle>Sensores</SectionTitle>
+        <DataRow
+          label="Giroscopio"
+          value={
+            gyroAvailable === null ? 'Comprobando…' : gyroAvailable ? 'Disponible' : 'No disponible'
+          }
+        />
         {sensors ? (
           <>
-            <Text style={styles.line}>Aceleración media: {fmt(sensors.value)} m/s²</Text>
-            <Text style={styles.line}>Variabilidad (vibración): {fmt(sensors.std, 3)} m/s²</Text>
-            <Text style={styles.line}>Rotación media: {fmt(sensors.gyro, 3)} rad/s</Text>
-            <Text style={styles.muted}>Última lectura hace {ageSeconds(sensors.ts)} s</Text>
+            <DataRow label="Aceleración media" value={`${fmt(sensors.value)} m/s²`} />
+            <DataRow label="Vibración" value={`${fmt(sensors.std, 3)} m/s²`} />
+            <DataRow label="Rotación media" value={`${fmt(sensors.gyro, 3)} rad/s`} />
+            <DataRow label="Última lectura" value={`hace ${ageSeconds(sensors.ts)} s`} last />
           </>
         ) : (
-          <Text style={styles.muted}>Esperando la primera ventana (hasta 5 s)…</Text>
+          <DataRow label="Última lectura" value="Esperando (hasta 5 s)…" last />
         )}
-        <Text style={styles.muted}>Los sensores solo se leen con la app abierta.</Text>
-      </View>
+        <Text style={styles.hint}>
+          Se mide una ventana de 5 s cada 30 s, únicamente con la aplicación abierta.
+        </Text>
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.title}>GPS</Text>
+      <Card>
+        <SectionTitle>GPS</SectionTitle>
         {fix ? (
           <>
-            <Text style={styles.line}>
-              {fix.lat.toFixed(6)}, {fix.lng.toFixed(6)} · ±{Math.round(fix.accuracy_m)} m
-            </Text>
-            <Text style={styles.muted}>Última posición hace {ageSeconds(fix.ts)} s</Text>
+            <DataRow label="Posición" value={`${fix.lat.toFixed(6)}, ${fix.lng.toFixed(6)}`} />
+            <DataRow label="Precisión" value={`±${Math.round(fix.accuracy_m)} m`} />
+            <DataRow label="Última posición" value={`hace ${ageSeconds(fix.ts)} s`} last />
           </>
         ) : (
-          <Text style={styles.muted}>Sin posición todavía: inicia una ronda.</Text>
+          <Text style={styles.hint}>Sin posición todavía: inicie una ronda.</Text>
         )}
-      </View>
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.title}>Guardado en el teléfono</Text>
-        <Text style={styles.line}>Puntos totales: {stats.total}</Text>
-        <Text style={styles.line}>De rondas sin servidor: {stats.offline}</Text>
-        <Text style={styles.line}>Pendientes de enviar al servidor: {stats.pending}</Text>
-        <Text style={styles.line}>
-          Con datos de sensores: {stats.withSensors} · con giroscopio: {stats.withGyro}
-        </Text>
-      </View>
+      <Card>
+        <SectionTitle>Datos guardados en el teléfono</SectionTitle>
+        <DataRow label="Puntos totales" value={String(stats.total)} />
+        <DataRow label="De rondas de prueba" value={String(stats.offline)} />
+        <DataRow label="Pendientes de envío" value={String(stats.pending)} />
+        <DataRow label="Con datos de sensores" value={String(stats.withSensors)} />
+        <DataRow label="Con giroscopio" value={String(stats.withGyro)} last />
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.title}>Últimos {RECENT_POINTS} puntos</Text>
-        <Text style={styles.mono}>hora      ±m   acel   vibr   giro  mov</Text>
+      <Card>
+        <SectionTitle>{`Últimos ${RECENT_POINTS} puntos`}</SectionTitle>
+        <Text style={[styles.mono, styles.monoHeader]}>hora      ±m   acel   vibr   giro  mov</Text>
         {points.map((p) => (
           <Text key={p.id} style={styles.mono}>
             {clock(p.recorded_at)} {fmt(p.accuracy_m, 0).padStart(4)} {fmt(p.accel_magnitude).padStart(6)}{' '}
@@ -181,48 +187,55 @@ export function DiagnosticsScreen() {
             {p.is_moving === null ? ' —' : p.is_moving ? ' sí' : ' no'}
           </Text>
         ))}
-        {points.length === 0 && <Text style={styles.muted}>Sin puntos todavía.</Text>}
-      </View>
+        {points.length === 0 && <Text style={styles.hint}>Sin puntos registrados.</Text>}
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.title}>Escaneos sin servidor</Text>
+      <Card>
+        <SectionTitle>Escaneos de prueba</SectionTitle>
         {scans.map((s) => (
-          <Text key={s.id} style={styles.line}>
-            {clock(s.scanned_at)} · {s.checkpoint_name} · {Math.round(s.distance_m)} m ·{' '}
-            {s.is_valid
-              ? 'válido'
-              : REASON_LABELS[s.invalid_reason as keyof typeof REASON_LABELS] ?? 'inválido'}
-          </Text>
+          <View key={s.id} style={styles.scanRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.scanName}>{s.checkpoint_name}</Text>
+              <Text style={styles.hint}>
+                {clock(s.scanned_at)} · a {Math.round(s.distance_m)} m
+              </Text>
+            </View>
+            <Badge
+              tone={s.is_valid ? 'good' : 'critical'}
+              label={
+                s.is_valid
+                  ? 'Válido'
+                  : (REASON_LABELS[s.invalid_reason as keyof typeof REASON_LABELS] ?? 'No válido')
+              }
+            />
+          </View>
         ))}
-        {scans.length === 0 && <Text style={styles.muted}>Sin escaneos de prueba.</Text>}
-      </View>
+        {scans.length === 0 && <Text style={styles.hint}>Sin escaneos de prueba.</Text>}
+      </Card>
 
-      <TouchableOpacity style={styles.button} onPress={() => void onShare()}>
-        <Text style={styles.buttonText}>Compartir datos (CSV)</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.dangerButton} onPress={onClear}>
-        <Text style={styles.dangerText}>Borrar datos de prueba</Text>
-      </TouchableOpacity>
+      <Button label="Compartir datos (CSV)" onPress={() => void onShare()} />
+      <Button
+        label="Borrar datos de prueba"
+        variant="danger"
+        onPress={onClear}
+        style={{ marginBottom: 24 }}
+      />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9f9f7' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, elevation: 1 },
-  title: { fontSize: 15, fontWeight: '700', color: '#0b0b0b', marginBottom: 6 },
-  line: { fontSize: 14, color: '#0b0b0b', marginBottom: 2 },
-  muted: { fontSize: 12, color: '#898781', marginTop: 2 },
-  mono: { fontFamily: 'monospace', fontSize: 11, color: '#0b0b0b' },
-  button: { backgroundColor: '#2a78d6', borderRadius: 8, padding: 14, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: '600' },
-  dangerButton: {
-    borderWidth: 1,
-    borderColor: '#d03b3b',
-    borderRadius: 8,
-    padding: 12,
+  container: { flex: 1, backgroundColor: colors.plane },
+  hint: { fontSize: 12, color: colors.muted, marginTop: 6 },
+  mono: { fontFamily: 'monospace', fontSize: 11, color: colors.ink },
+  monoHeader: { color: colors.muted, marginBottom: 2 },
+  scanRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    gap: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  dangerText: { color: '#d03b3b', fontWeight: '600' },
+  scanName: { fontSize: 14, fontWeight: '600', color: colors.ink },
 });

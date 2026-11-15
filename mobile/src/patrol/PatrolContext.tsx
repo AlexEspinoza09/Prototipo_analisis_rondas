@@ -65,12 +65,12 @@ export function PatrolProvider({ children }: { children: ReactNode }) {
   const startPatrol = useCallback(async (route: RouteItem, deviceId: string) => {
     const foreground = await Location.requestForegroundPermissionsAsync();
     if (foreground.status !== 'granted') {
-      throw new Error('Se necesita el permiso de ubicación para iniciar la ronda.');
+      throw new Error('La aplicación necesita el permiso de ubicación para iniciar la ronda.');
     }
     const background = await Location.requestBackgroundPermissionsAsync();
     if (background.status !== 'granted') {
       throw new Error(
-        'Activa "Permitir todo el tiempo" en el permiso de ubicación para registrar la ronda en segundo plano.',
+        'Active la opción "Permitir todo el tiempo" en el permiso de ubicación para registrar la ronda en segundo plano.',
       );
     }
     const session = await api<PatrolSession>('/sessions/start', {

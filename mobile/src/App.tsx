@@ -14,6 +14,7 @@ import { LoginScreen } from './screens/LoginScreen';
 import { RoutesScreen } from './screens/RoutesScreen';
 import { ScanResultScreen } from './screens/ScanResultScreen';
 import { ScanScreen } from './screens/ScanScreen';
+import { colors, headerOptions } from './theme';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -33,14 +34,16 @@ function Navigator() {
 
   if (authLoading || patrolLoading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" />
+      <View
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.plane }}
+      >
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <Stack.Navigator screenOptions={{ headerTitleStyle: { fontSize: 16 } }}>
+    <Stack.Navigator screenOptions={headerOptions}>
       {!user ? (
         <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
       ) : (
@@ -55,14 +58,18 @@ function Navigator() {
             <Stack.Screen
               name="Routes"
               component={RoutesScreen}
-              options={{ title: 'Rutas disponibles' }}
+              options={{ title: 'Rutas asignadas' }}
             />
           )}
-          <Stack.Screen name="Scan" component={ScanScreen} options={{ title: 'Escanear QR' }} />
+          <Stack.Screen
+            name="Scan"
+            component={ScanScreen}
+            options={{ title: 'Escanear código QR' }}
+          />
           <Stack.Screen
             name="ScanResult"
             component={ScanResultScreen}
-            options={{ title: 'Resultado', headerBackVisible: false }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="History"
@@ -86,7 +93,7 @@ export default function App() {
       <AuthProvider>
         <PatrolProvider>
           <NavigationContainer>
-            <StatusBar style="dark" />
+            <StatusBar style="light" />
             <Navigator />
           </NavigationContainer>
         </PatrolProvider>
